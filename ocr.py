@@ -1,4 +1,4 @@
-import requests
+﻿import requests
 import os
 import sys
 import base64
@@ -75,7 +75,7 @@ def configure_styles_force():
             except:
                 pass
     if not font_loaded:
-        plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'Arial Unicode MS']
+        plt.rcParams['font.sans-serif'] = ['Microsoft YaHei UI', 'SimHei', 'Arial Unicode MS']
 
 
 def ensure_matplotlib_loaded():
@@ -405,6 +405,41 @@ class OCRApp:
         self.root = root
         self.root.title("")
 
+        # ── 全局字体：贴近参考图的 Windows 界面字体 ──
+        _font_dir = Path(__file__).parent
+        _REGULAR = 'Microsoft YaHei UI'
+        _BOLD    = 'Microsoft YaHei UI'
+        try:
+            from ctypes import windll, create_unicode_buffer
+            FR_PRIVATE = 0x10
+            for _fname in ['PingFang SC Regular.ttf', 'PingFang SC Bold.ttf']:
+                _fpath = str(_font_dir / _fname)
+                if os.path.exists(_fpath):
+                    windll.gdi32.AddFontResourceExW(
+                        create_unicode_buffer(_fpath), FR_PRIVATE, 0)
+        except Exception:
+            pass
+
+        try:
+            import tkinter.font as tkfont
+            default_font = tkfont.nametofont('TkDefaultFont')
+            default_font.configure(family=_REGULAR, size=13, weight='normal')
+            text_font = tkfont.nametofont('TkTextFont')
+            text_font.configure(family=_REGULAR, size=13, weight='normal')
+            fixed_font = tkfont.nametofont('TkFixedFont')
+            fixed_font.configure(family='Consolas', size=11, weight='normal')
+            self.root.option_add('*Font',             (_REGULAR, 13))
+            self.root.option_add('*Label.Font',       (_REGULAR, 13))
+            self.root.option_add('*Button.Font',      (_REGULAR, 14))
+            self.root.option_add('*Entry.Font',       (_REGULAR, 13))
+            self.root.option_add('*Text.Font',        (_REGULAR, 13))
+            self.root.option_add('*Combobox.Font',    (_REGULAR, 13))
+            self.root.option_add('*Menu.Font',        (_REGULAR, 13))
+            self.root.option_add('*Radiobutton.Font', (_REGULAR, 13))
+            self.root.option_add('*Checkbutton.Font', (_REGULAR, 13))
+        except Exception:
+            pass
+
         # 移除默认的 tkinter 羽毛图标，使用空白透明图标
         try:
             import tempfile, os
@@ -543,80 +578,73 @@ class OCRApp:
 
     def setup_main_interface(self):
         """设置主界面 — 左侧导航栏 + 顶部标题栏 + 右侧主体"""
-        self.root.configure(bg='#F5F7FB')
+        self.root.configure(bg='#F7F7F5')
 
         # ── 顶部标题栏 ──
-        title_bar = tk.Frame(self.root, bg='white', height=38,
-                             highlightthickness=0)
+        title_bar = tk.Frame(self.root, bg='white', height=54,
+                             highlightthickness=1, highlightbackground='#EEF0F3')
         title_bar.pack(fill=tk.X, side=tk.TOP)
         title_bar.pack_propagate(False)
 
         # logo + 标题
-        _logo_cv = tk.Canvas(title_bar, width=26, height=26,
+        menu_lbl = tk.Label(title_bar, text='☰', bg='white', fg='#4B5563',
+                            font=('Microsoft YaHei UI', 15, 'normal'), cursor='hand2')
+        menu_lbl.pack(side=tk.LEFT, padx=(18, 8), pady=13)
+
+        _logo_cv = tk.Canvas(title_bar, width=24, height=24,
                              bg='white', highlightthickness=0, bd=0)
-        _logo_cv.pack(side=tk.LEFT, padx=(14, 8), pady=6)
+        _logo_cv.pack(side=tk.LEFT, padx=(0, 8), pady=14)
 
         def _draw_logo(cv):
-            r = 6
-            x1, y1, x2, y2 = 0, 0, 26, 26
-            c = '#3B82F6'
-            # 圆角矩形
-            cv.create_arc(x1, y1, x1+r*2, y1+r*2, start=90,  extent=90,  fill=c, outline=c)
-            cv.create_arc(x2-r*2, y1, x2, y1+r*2, start=0,   extent=90,  fill=c, outline=c)
-            cv.create_arc(x1, y2-r*2, x1+r*2, y2, start=180, extent=90,  fill=c, outline=c)
-            cv.create_arc(x2-r*2, y2-r*2, x2, y2, start=270, extent=90,  fill=c, outline=c)
-            cv.create_rectangle(x1+r, y1, x2-r, y2, fill=c, outline=c)
-            cv.create_rectangle(x1, y1+r, x2, y2-r, fill=c, outline=c)
-            # 相机图标（白色，缩放至 26x26）
-            # 镜头外框
-            cv.create_rectangle(3, 8, 23, 19, fill='', outline='white', width=2)
-            # 镜头圆
-            cv.create_oval(9, 10, 17, 17, fill='', outline='white', width=2)
-            # 取景器小矩形
-            cv.create_rectangle(17, 6, 21, 9, fill='white', outline='white')
+            colors = ['#FDE68A', '#FACC15', '#EAB308', '#CA8A04']
+            xs = [3, 8, 13, 18]
+            heights = [8, 14, 19, 11]
+            for x, h, color in zip(xs, heights, colors):
+                cv.create_rectangle(x, 21 - h, x + 4, 21,
+                                    fill=color, outline=color)
 
         _draw_logo(_logo_cv)
 
-        tk.Label(title_bar, text='OCR 数据分类工具', bg='white', fg='#111827',
-                 font=('Microsoft YaHei', 11, 'bold')).pack(side=tk.LEFT, pady=5)
+        tk.Label(title_bar, text='OCR 数据分类工具', bg='white', fg='#1F2329',
+                 font=('Microsoft YaHei UI', 15, 'bold')).pack(side=tk.LEFT, pady=14)
 
         # 右侧按钮区
         def _title_btn(parent, text, cmd, fg='#374151'):
             b = tk.Label(parent, text=text, bg='white', fg=fg,
-                         font=('Microsoft YaHei UI', 9), cursor='hand2', padx=8)
-            b.pack(side=tk.RIGHT, pady=7)
+                         font=('Microsoft YaHei UI', 10, 'normal'), cursor='hand2', padx=10)
+            b.pack(side=tk.RIGHT, pady=15)
             b.bind('<Button-1>', lambda e: cmd())
-            b.bind('<Enter>', lambda e: b.config(fg='#0066FF'))
+            b.bind('<Enter>', lambda e: b.config(fg='#D69E00'))
             b.bind('<Leave>', lambda e: b.config(fg=fg))
             return b
 
-        _title_btn(self.root.nametowidget(title_bar) if False else title_bar,
-                   '?', lambda: messagebox.showinfo('帮助', '使用左侧导航切换功能页面'))
+        _title_btn(title_bar, '⋯', lambda: None)
         _title_btn(title_bar, '帮助', lambda: messagebox.showinfo('帮助', '使用左侧导航切换功能页面'))
-        _title_btn(title_bar, '⚙', self.show_settings_panel)
+        _title_btn(title_bar, '?', lambda: messagebox.showinfo('帮助', '使用左侧导航切换功能页面'))
         _title_btn(title_bar, '设置', self.show_settings_panel)
+        _title_btn(title_bar, '⚙', self.show_settings_panel)
 
         # 字号控件保留为隐藏兼容变量，避免旧逻辑引用时报错。
         font_frame = tk.Frame(title_bar, bg='white')
         self.combo_font = ttk.Combobox(font_frame, values=[str(i) for i in range(8, 31)],
                                        width=4, state='readonly',
-                                       font=('Microsoft YaHei', 9))
+                                       font=('Microsoft YaHei UI', 9, 'normal'))
         self.combo_font.set(str(self.current_font_size))
         self.combo_font.bind('<<ComboboxSelected>>', self.on_font_combo_change)
 
         # ── 主体：左侧导航 + 右侧内容 ──
-        body = tk.Frame(self.root, bg='#F5F7FB')
+        body = tk.Frame(self.root, bg='#F7F7F5')
         body.pack(fill=tk.BOTH, expand=True)
 
         # ── 左侧导航栏 ──
         nav_bg = '#FFFFFF'
-        nav = tk.Frame(body, bg=nav_bg, width=176,
-                       highlightthickness=1, highlightbackground='#E5E7EB')
+        nav = tk.Frame(body, bg=nav_bg, width=172,
+                       highlightthickness=1, highlightbackground='#EEF0F3')
         nav.pack(side=tk.LEFT, fill=tk.Y)
         nav.pack_propagate(False)
 
         # 右侧内容区
-        self._content_area = tk.Frame(body, bg='#F5F7FB')
+        self._content_area = tk.Frame(body, bg='#F7F7F5')
         self._content_area.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # 各导航页 frame（用 pack/pack_forget 切换）
@@ -647,20 +675,20 @@ class OCRApp:
         # ── 导航菜单项 ──
         self._nav_buttons = {}
         nav_items = [
-            ('⌂',  '首页',    self._nav_home),
-            ('▣',  'OCR 识别', lambda: self._nav_to('OCR识别')),
-            ('⛾',  '图片预览', lambda: self._nav_to('图片预览')),
-            ('⏱',  '历史记录', lambda: self._nav_to('历史')),
-            ('🔑', '密钥管理', lambda: self._nav_to('密钥')),
-            ('📊', '统计',    lambda: self._nav_to('统计')),
-            ('⊡',  '限制尺寸', lambda: self._nav_to('解锁')),
+            ('⌂',  '首页',    self._nav_home,           '首页'),
+            ('▣',  'OCR 识别', lambda: self._nav_to('OCR识别'), 'OCR 识别'),
+            ('▤',  '图片预览', lambda: self._nav_to('图片预览'), '图片预览'),
+            ('◷',  '历史记录', lambda: self._nav_to('历史'),    '历史记录'),
+            ('⌘', '密钥管理', lambda: self._nav_to('密钥'),    '密钥管理'),
+            ('▥', '统计',    lambda: self._nav_to('统计'),    '统计'),
+            ('⊡',  '限制尺寸', lambda: self._nav_to('解锁'),    '规则尺寸'),
         ]
 
         tk.Frame(nav, bg=nav_bg, height=18).pack()  # 顶部间距
 
-        for icon, label, cmd in nav_items:
+        for icon, label, cmd, display_label in nav_items:
             item = tk.Frame(nav, bg=nav_bg, cursor='hand2')
-            item.pack(fill=tk.X, padx=16, pady=6)
+            item.pack(fill=tk.X, padx=14, pady=5)
 
             # 左侧激活条
             bar = tk.Frame(item, bg=nav_bg, width=0)
@@ -668,25 +696,24 @@ class OCRApp:
 
             # 图标左 + 文字右 水平排列
             content = tk.Frame(item, bg=nav_bg)
-            content.pack(fill=tk.X, expand=True, padx=12, pady=12)
+            content.pack(fill=tk.X, expand=True, padx=8, pady=11)
 
             icon_lbl = tk.Label(content, text=icon, bg=nav_bg, fg='#9CA3AF',
-                                font=('Segoe UI Symbol', 16))
-            icon_lbl.pack(side=tk.LEFT, padx=(0, 12))
-            text_lbl = tk.Label(content, text=label, bg=nav_bg, fg='#9CA3AF',
-                                font=('Microsoft YaHei UI', 12, 'bold'))
+                                font=('Microsoft YaHei UI', 13, 'normal'))
+            icon_lbl.pack(side=tk.LEFT, padx=(0, 11))
+            text_lbl = tk.Label(content, text=display_label, bg=nav_bg, fg='#555555',
+                                font=('Microsoft YaHei UI', 13, 'normal'))
             text_lbl.pack(side=tk.LEFT)
 
-            def _on_enter(e, f=item, c=content, il=icon_lbl, tl=text_lbl):
+            def _on_enter(e, f=item, c=content, il=icon_lbl, tl=text_lbl, lbl=label):
                 active = getattr(self, '_active_nav', '')
-                lbl = tl.cget('text')
                 if active != lbl:
                     for w in (f, c, il, tl):
-                        w.config(bg='#F3F4F6')
+                        w.config(bg='#FFF8DB')
 
             def _on_leave(e, f=item, c=content, il=icon_lbl, tl=text_lbl, b=bar, lbl=label):
                 active = getattr(self, '_active_nav', '')
-                bg = '#EFF6FF' if active == lbl else nav_bg
+                bg = '#FFF8DB' if active == lbl else nav_bg
                 for w in (f, c, il, tl):
                     w.config(bg=bg)
 
@@ -706,10 +733,10 @@ class OCRApp:
                                     highlightthickness=1, highlightbackground='#E5E7EB')
         self._status_bar.pack(side=tk.BOTTOM, fill=tk.X, pady=0)
         self._status_dot = tk.Label(self._status_bar, text='●', bg=nav_bg, fg='#3B82F6',
-                                    font=('Arial', 10))
+                                    font=('Microsoft YaHei UI', 10, 'normal'))
         self._status_dot.pack(side=tk.LEFT, padx=(14, 4), pady=8)
         self._status_text = tk.Label(self._status_bar, text='就绪', bg=nav_bg, fg='#6B7280',
-                                     font=('Microsoft YaHei', 9))
+                                     font=('Microsoft YaHei UI', 9, 'normal'))
         self._status_text.pack(side=tk.LEFT, pady=8)
 
         # ── 主界面顶部识别状态横幅（全宽，醒目） ──
@@ -748,7 +775,7 @@ class OCRApp:
                 for w in (item, content, icon_lbl, text_lbl):
                     w.config(bg=nav_bg)
                 icon_lbl.config(fg='#9CA3AF')
-                text_lbl.config(fg='#9CA3AF', font=('Microsoft YaHei UI', 12, 'bold'))
+                text_lbl.config(fg='#999999', font=('Microsoft YaHei UI', 13, 'normal'))
                 bar.config(bg=nav_bg)
             return
         for lbl, (item, icon_lbl, text_lbl, bar) in self._nav_buttons.items():
@@ -757,15 +784,15 @@ class OCRApp:
             content = children[1] if len(children) > 1 else item
             if lbl == label:
                 for w in (item, content, icon_lbl, text_lbl):
-                    w.config(bg='#EFF6FF')
-                icon_lbl.config(fg='#0066FF')
-                text_lbl.config(fg='#0066FF', font=('Microsoft YaHei UI', 12, 'bold'))
-                bar.config(bg='#0066FF')
+                    w.config(bg='#FFF8DB')
+                icon_lbl.config(fg='#C99700')
+                text_lbl.config(fg='#111827', font=('Microsoft YaHei UI', 13, 'bold'))
+                bar.config(bg='#FACC15')
             else:
                 for w in (item, content, icon_lbl, text_lbl):
                     w.config(bg=nav_bg)
                 icon_lbl.config(fg='#9CA3AF')
-                text_lbl.config(fg='#111827', font=('Microsoft YaHei UI', 12, 'bold'))
+                text_lbl.config(fg='#555555', font=('Microsoft YaHei UI', 13, 'normal'))
                 bar.config(bg=nav_bg)
 
     def _show_import_dialog(self):
@@ -782,11 +809,11 @@ class OCRApp:
         win.resizable(False, True)
 
         # 标题
-        tk.Label(win, text='粘贴并解析数据', bg='white', fg='#111827',
-                 font=('Microsoft YaHei', 12, 'bold')).pack(anchor='w', padx=18, pady=(14, 4))
+        tk.Label(win, text='粘贴并解析数据', bg='white', fg='#222222',
+                 font=('Microsoft YaHei UI', 12, 'normal')).pack(anchor='w', padx=18, pady=(14, 4))
         tk.Label(win, text='格式：名称|Y|X|高度  每行一条',
-                 bg='white', fg='#9CA3AF',
-                 font=('Microsoft YaHei', 9)).pack(anchor='w', padx=18, pady=(0, 8))
+                 bg='white', fg='#999999',
+                 font=('Microsoft YaHei UI', 9, 'normal')).pack(anchor='w', padx=18, pady=(0, 8))
 
         # 文本框
         txt = tk.Text(win, font=('Consolas', 10), relief='flat',
@@ -818,11 +845,11 @@ class OCRApp:
 
         tk.Button(btn_row, text='解析数据', command=do_parse,
                   bg='#1A6FD4', fg='white', relief='flat',
-                  font=('Microsoft YaHei', 10, 'bold'),
+                  font=('Microsoft YaHei UI', 10, 'bold'),
                   padx=20, pady=6, cursor='hand2').pack(side=tk.LEFT)
         tk.Button(btn_row, text='取消', command=win.destroy,
                   bg='#F3F4F6', fg='#374151', relief='flat',
-                  font=('Microsoft YaHei', 10),
+                  font=('Microsoft YaHei UI', 10, 'bold'),
                   padx=20, pady=6, cursor='hand2').pack(side=tk.LEFT, padx=(8, 0))
 
         win.bind('<Return>', lambda e: do_parse())
@@ -860,16 +887,16 @@ class OCRApp:
 
         header = tk.Frame(page, bg='white')
         header.pack(fill=tk.X, padx=24, pady=(18, 10))
-        tk.Label(header, text='📊 识别统计', bg='white', fg='#111827',
-                 font=('Microsoft YaHei', 14, 'bold')).pack(side=tk.LEFT)
+        tk.Label(header, text='📊 识别统计', bg='white', fg='#222222',
+                 font=('Microsoft YaHei UI', 14, 'normal')).pack(side=tk.LEFT)
         tk.Button(header, text='🔄 刷新', command=lambda: _reload(),
                   bg='#EFF6FF', fg='#1A6FD4', relief='flat',
-                  font=('Microsoft YaHei', 9), padx=10, pady=4,
+                  font=('Microsoft YaHei UI', 9, 'bold'), padx=10, pady=4,
                   cursor='hand2').pack(side=tk.RIGHT)
 
         tk.Button(header, text='🗑 清空统计', command=lambda: _clear_stats(),
                   bg='#FEF2F2', fg='#EF4444', relief='flat',
-                  font=('Microsoft YaHei', 9), padx=10, pady=4,
+                  font=('Microsoft YaHei UI', 9, 'bold'), padx=10, pady=4,
                   cursor='hand2').pack(side=tk.RIGHT, padx=(0, 6))
 
         # 四个子标签
@@ -926,7 +953,7 @@ class OCRApp:
             empty = tk.Frame(parent, bg='white')
             empty.pack(fill='both', expand=True)
             tk.Label(empty, text='暂无统计数据', bg='white', fg='#9CA3AF',
-                     font=('Microsoft YaHei', 12)).pack(expand=True)
+                     font=('Microsoft YaHei UI', 12, 'bold')).pack(expand=True)
             return
 
         # ── 按模式分别构建数据 ──
@@ -1014,14 +1041,14 @@ class OCRApp:
         toggle_row = tk.Frame(parent, bg=BG)
         toggle_row.pack(fill=tk.X, padx=16, pady=(10, 4))
         tk.Label(toggle_row, text='查看模式：', bg=BG, fg='#374151',
-                 font=('Microsoft YaHei', 9)).pack(side=tk.LEFT)
+                 font=('Microsoft YaHei UI', 9, 'bold')).pack(side=tk.LEFT)
 
         mode_btns = {}
         for mk, md in mode_data.items():
             b = tk.Button(toggle_row, text=md['label'],
                           bg='white', fg='#374151', relief='flat',
                           highlightthickness=1, highlightbackground='#E5E7EB',
-                          font=('Microsoft YaHei', 9),
+                          font=('Microsoft YaHei UI', 9, 'bold'),
                           padx=14, pady=4, cursor='hand2')
             b.pack(side=tk.LEFT, padx=(4, 0))
             mode_btns[mk] = b
@@ -1030,7 +1057,7 @@ class OCRApp:
         cards = tk.Frame(parent, bg=BG)
         cards.pack(fill=tk.X, padx=16, pady=(4, 4))
         tk.Label(cards, text=f'本月 {cur_month}', bg=BG, fg='#9CA3AF',
-                 font=('Microsoft YaHei', 8)).pack(anchor='w', pady=(0, 4))
+                 font=('Microsoft YaHei UI', 8, 'bold')).pack(anchor='w', pady=(0, 4))
         card_row = tk.Frame(cards, bg=BG)
         card_row.pack(fill=tk.X)
         card_labels = {}
@@ -1039,10 +1066,10 @@ class OCRApp:
                             highlightbackground='#BFDBFE')
             card.pack(side=tk.LEFT, padx=(0, 12), pady=4, ipadx=14, ipady=8)
             vl = tk.Label(card, text='', bg='#F0F7FF', fg=BLUE,
-                          font=('Microsoft YaHei', 15, 'bold'))
+                          font=('Microsoft YaHei UI', 15, 'bold'))
             vl.pack()
             tk.Label(card, text=lb, bg='#F0F7FF', fg='#6B7280',
-                     font=('Microsoft YaHei', 8)).pack()
+                     font=('Microsoft YaHei UI', 8, 'bold')).pack()
             card_labels[lb] = vl
             card_labels[lb] = vl
 
@@ -1084,26 +1111,26 @@ class OCRApp:
 
         style = ttk.Style()
         style.configure('Total.Treeview',
-                        font=('Microsoft YaHei', self.current_font_size),
+                        font=('Microsoft YaHei UI', self.current_font_size, 'bold'),
                         rowheight=max(int(self.current_font_size * 2.0),
                                       self.current_font_size + 8))
         style.configure('Total.Treeview.Heading',
-                        font=('Microsoft YaHei', 10, 'bold'),
+                        font=('Microsoft YaHei UI', 10, 'bold'),
                         background='#F1F5F9')
         self._total_tree.configure(style='Total.Treeview')
 
         self._total_tree.tag_configure('odd', background='#F8FAFC')
         self._total_tree.tag_configure('even', background='white')
         self._total_tree.tag_configure('month_start', background='#E8F0FE',
-                                       font=('Microsoft YaHei', self.current_font_size, 'bold'))
+                                       font=('Microsoft YaHei UI', self.current_font_size, 'bold'))
         self._total_tree.tag_configure('summary', background='#E8F5E9',
-                                       font=('Microsoft YaHei', self.current_font_size, 'bold'))
+                                       font=('Microsoft YaHei UI', self.current_font_size, 'bold'))
 
         # ── 分页栏 ──
         pager = tk.Frame(parent, bg=BG)
         pager.pack(fill=tk.X, padx=16, pady=(0, 8))
         page_lbl = tk.Label(pager, text='', bg=BG, fg='#6B7280',
-                            font=('Microsoft YaHei', 9))
+                            font=('Microsoft YaHei UI', 9, 'bold'))
         page_lbl.pack(side=tk.LEFT)
 
         btn_row = tk.Frame(pager, bg=BG)
@@ -1116,7 +1143,7 @@ class OCRApp:
         ]:
             tk.Button(btn_row, text=text, command=target_fn,
                       bg='#E5E7EB', relief='flat',
-                      font=('Microsoft YaHei', 9),
+                      font=('Microsoft YaHei UI', 9, 'bold'),
                       padx=8, pady=2, cursor='hand2').pack(side=tk.RIGHT, padx=2)
 
         def _populate_page():
@@ -1188,7 +1215,7 @@ class OCRApp:
             self._total_tree.heading('avg_cache', text=f'{lbl}月日均缓存')
             # 更新月份标签背景色
             self._total_tree.tag_configure('month_start', background=md['bg'],
-                                           font=('Microsoft YaHei', self.current_font_size, 'bold'))
+                                           font=('Microsoft YaHei UI', self.current_font_size, 'bold'))
             # 更新日期排序文本
             self._total_tree.heading('date_col',
                                      text='日期 ▼' if sort_order[0] else '日期 ▲',
@@ -1218,7 +1245,7 @@ class OCRApp:
         self._total_tree.heading('avg_api', text=f'{lbl0}月日均接口')
         self._total_tree.heading('avg_cache', text=f'{lbl0}月日均缓存')
         self._total_tree.tag_configure('month_start', background=mode_data[mk0]['bg'],
-                                       font=('Microsoft YaHei', self.current_font_size, 'bold'))
+                                       font=('Microsoft YaHei UI', self.current_font_size, 'bold'))
         card_labels['使用天数'].config(text=f'{m_days} 天')
         card_labels['接口调用'].config(text=fmt(m_api))
         card_labels['缓存复用'].config(text=fmt(m_cache))
@@ -1242,14 +1269,14 @@ class OCRApp:
         # ── 删除日期行 ──
         ctrl = tk.Frame(parent, bg=BG)
         ctrl.pack(fill=tk.X, padx=16, pady=(6, 4))
-        tk.Label(ctrl, text='删除日期：', bg=BG, font=('Microsoft YaHei', 9)).pack(side=tk.LEFT)
+        tk.Label(ctrl, text='删除日期：', bg=BG, font=('Microsoft YaHei UI', 9, 'bold')).pack(side=tk.LEFT)
         del_var = tk.StringVar()
-        tk.Entry(ctrl, textvariable=del_var, width=14, font=('Microsoft YaHei', 9),
+        tk.Entry(ctrl, textvariable=del_var, width=14, font=('Microsoft YaHei UI', 9, 'bold'),
                  relief='flat', highlightthickness=1, highlightbackground='#DDE3EA'
                  ).pack(side=tk.LEFT, padx=(4, 8), ipady=3)
-        tk.Label(ctrl, text='密码：', bg=BG, font=('Microsoft YaHei', 9)).pack(side=tk.LEFT)
+        tk.Label(ctrl, text='密码：', bg=BG, font=('Microsoft YaHei UI', 9, 'bold')).pack(side=tk.LEFT)
         pwd_var = tk.StringVar()
-        tk.Entry(ctrl, textvariable=pwd_var, width=10, show='*', font=('Microsoft YaHei', 9),
+        tk.Entry(ctrl, textvariable=pwd_var, width=10, show='*', font=('Microsoft YaHei UI', 9, 'bold'),
                  relief='flat', highlightthickness=1, highlightbackground='#DDE3EA'
                  ).pack(side=tk.LEFT, padx=(4, 8), ipady=3)
 
@@ -1275,7 +1302,7 @@ class OCRApp:
 
         tk.Button(ctrl, text='删除', command=do_delete,
                   bg='#FEF2F2', fg='#EF4444', relief='flat',
-                  font=('Microsoft YaHei', 9), padx=10, pady=3,
+                  font=('Microsoft YaHei UI', 9, 'bold'), padx=10, pady=3,
                   cursor='hand2').pack(side=tk.LEFT)
 
         # ── 表格 ──
@@ -1297,7 +1324,7 @@ class OCRApp:
         tree.tag_configure('accurate', background='#E3F2FD')
         tree.tag_configure('general',  background='#F3E5F5')
         tree.tag_configure('total',    background='#E8F5E9',
-                           font=('Microsoft YaHei', self.current_font_size, 'bold'))
+                           font=('Microsoft YaHei UI', self.current_font_size, 'bold'))
 
         def _fill():
             tree.delete(*tree.get_children())
@@ -1351,7 +1378,7 @@ class OCRApp:
         toggle_row = tk.Frame(parent, bg=BG)
         toggle_row.pack(fill=tk.X, padx=16, pady=(8, 4))
         tk.Label(toggle_row, text='查看模式：', bg=BG, fg='#374151',
-                 font=('Microsoft YaHei', 9)).pack(side=tk.LEFT)
+                 font=('Microsoft YaHei UI', 9, 'bold')).pack(side=tk.LEFT)
 
         mode_data = {
             'accurate': {'label': '高精度', 'bg': '#E3F2FD'},
@@ -1364,7 +1391,7 @@ class OCRApp:
             b = tk.Button(toggle_row, text=md['label'],
                           bg='white', fg='#374151', relief='flat',
                           highlightthickness=1, highlightbackground='#E5E7EB',
-                          font=('Microsoft YaHei', 9),
+                          font=('Microsoft YaHei UI', 9, 'bold'),
                           padx=14, pady=4, cursor='hand2')
             b.pack(side=tk.LEFT, padx=(4, 0))
             mode_btns[mk] = b
@@ -1387,7 +1414,7 @@ class OCRApp:
         tree.tag_configure('item', background='white')
         tree.tag_configure('item_alt', background='#F8FAFC')
         tree.tag_configure('summary', background='#E8F5E9',
-                           font=('Microsoft YaHei', self.current_font_size, 'bold'))
+                           font=('Microsoft YaHei UI', self.current_font_size, 'bold'))
 
         def _fill():
             mk = current_mode[0]
@@ -1451,7 +1478,7 @@ class OCRApp:
             empty = tk.Frame(parent, bg=BG)
             empty.pack(fill=tk.BOTH, expand=True)
             tk.Label(empty, text='暂无统计数据', bg=BG, fg='#9CA3AF',
-                     font=('Microsoft YaHei', 12)).pack(expand=True)
+                     font=('Microsoft YaHei UI', 12, 'bold')).pack(expand=True)
             return
 
         def _build_minute_rows(date):
@@ -1513,40 +1540,40 @@ class OCRApp:
         header = tk.Frame(parent, bg=BG)
         header.pack(fill=tk.X, padx=18, pady=(10, 0))
         tk.Label(header, text='每天高精度 / 通用调用次数趋势', bg=BG, fg='#111827',
-                 font=('Microsoft YaHei', 11, 'bold')).pack(side=tk.LEFT)
+                 font=('Microsoft YaHei UI', 11, 'bold')).pack(side=tk.LEFT)
 
         control = tk.Frame(header, bg=BG)
         control.pack(side=tk.RIGHT)
         tk.Label(control, text='日期：', bg=BG, fg='#374151',
-                 font=('Microsoft YaHei', 9)).pack(side=tk.LEFT)
+                 font=('Microsoft YaHei UI', 9, 'bold')).pack(side=tk.LEFT)
         selected_date = tk.StringVar(value=sorted_dates[-1])
         date_box = ttk.Combobox(control, textvariable=selected_date,
                                 values=list(reversed(sorted_dates)),
                                 state='readonly', width=12,
-                                font=('Microsoft YaHei', 9))
+                                font=('Microsoft YaHei UI', 9, 'bold'))
         date_box.pack(side=tk.LEFT)
         tk.Label(control, text='  范围：', bg=BG, fg='#374151',
-                 font=('Microsoft YaHei', 9)).pack(side=tk.LEFT)
+                 font=('Microsoft YaHei UI', 9, 'bold')).pack(side=tk.LEFT)
         range_options = ['全天', '最近有调用的小时']
         selected_range = tk.StringVar(value='全天')
         range_box = ttk.Combobox(control, textvariable=selected_range,
                                  values=range_options, state='readonly',
-                                 width=16, font=('Microsoft YaHei', 9))
+                                 width=16, font=('Microsoft YaHei UI', 9, 'bold'))
         range_box.pack(side=tk.LEFT)
         tk.Button(control, text='上一小时', command=lambda: _shift_hour(-1),
                   bg='#E5E7EB', fg='#374151', relief='flat',
-                  font=('Microsoft YaHei', 8), padx=8, pady=2,
+                  font=('Microsoft YaHei UI', 8, 'bold'), padx=8, pady=2,
                   cursor='hand2').pack(side=tk.LEFT, padx=(6, 2))
         tk.Button(control, text='下一小时', command=lambda: _shift_hour(1),
                   bg='#E5E7EB', fg='#374151', relief='flat',
-                  font=('Microsoft YaHei', 8), padx=8, pady=2,
+                  font=('Microsoft YaHei UI', 8, 'bold'), padx=8, pady=2,
                   cursor='hand2').pack(side=tk.LEFT, padx=(2, 0))
 
         try:
             ensure_matplotlib_loaded()
         except Exception as e:
             tk.Label(parent, text=f'图表加载失败：{e}', bg=BG, fg='#EF4444',
-                     font=('Microsoft YaHei', 10)).pack(expand=True)
+                     font=('Microsoft YaHei UI', 10, 'bold')).pack(expand=True)
             return
 
         chart_frame = tk.Frame(parent, bg=BG)
@@ -1558,10 +1585,10 @@ class OCRApp:
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
         summary_lbl = tk.Label(parent, text='', bg=BG, fg='#6B7280',
-                               font=('Microsoft YaHei', 9))
+                               font=('Microsoft YaHei UI', 9, 'bold'))
         summary_lbl.pack(fill=tk.X, padx=18, pady=(0, 2))
         detail_lbl = tk.Label(parent, text='点击图上的时间点查看该分钟明细',
-                              bg=BG, fg='#374151', font=('Microsoft YaHei', 9),
+                              bg=BG, fg='#374151', font=('Microsoft YaHei UI', 9, 'bold'),
                               anchor='w')
         detail_lbl.pack(fill=tk.X, padx=18, pady=(0, 8))
 
@@ -1787,17 +1814,17 @@ class OCRApp:
 
         header = tk.Frame(page, bg='white')
         header.pack(fill=tk.X, padx=24, pady=(18, 8))
-        tk.Label(header, text='📜 识别历史记录', bg='white', fg='#111827',
-                 font=('Microsoft YaHei', 14, 'bold')).pack(side=tk.LEFT)
+        tk.Label(header, text='📜 识别历史记录', bg='white', fg='#222222',
+                 font=('Microsoft YaHei UI', 14, 'normal')).pack(side=tk.LEFT)
 
         # 搜索栏
         search_row = tk.Frame(page, bg='white')
         search_row.pack(fill=tk.X, padx=24, pady=(0, 8))
         tk.Label(search_row, text='搜索：', bg='white',
-                 font=('Microsoft YaHei', 9)).pack(side=tk.LEFT)
+                 font=('Microsoft YaHei UI', 9, 'bold')).pack(side=tk.LEFT)
         search_var = tk.StringVar()
         tk.Entry(search_row, textvariable=search_var,
-                 font=('Microsoft YaHei', 9), width=28,
+                 font=('Microsoft YaHei UI', 9, 'bold'), width=28,
                  relief='flat', highlightthickness=1,
                  highlightbackground='#DDE3EA').pack(side=tk.LEFT, padx=(4, 8), ipady=3)
 
@@ -1911,7 +1938,7 @@ class OCRApp:
             ('🗑 清空',     clear_all,           '#FEF2F2', '#EF4444'),
         ]:
             tk.Button(btn_row, text=text, command=cmd, bg=bg, fg=fg,
-                      relief='flat', font=('Microsoft YaHei', 9),
+                      relief='flat', font=('Microsoft YaHei UI', 9, 'bold'),
                       padx=12, pady=4, cursor='hand2').pack(side=tk.LEFT, padx=(0, 8))
 
         htree.bind('<Double-1>', lambda e: copy_selected_item())
@@ -1927,9 +1954,9 @@ class OCRApp:
         page.configure(bg='white')
 
         tk.Label(page, text='🔑 密钥设置', bg='white', fg='#111827',
-                 font=('Microsoft YaHei', 14, 'bold')).pack(anchor='w', padx=24, pady=(18, 4))
+                 font=('Microsoft YaHei UI', 14, 'bold')).pack(anchor='w', padx=24, pady=(18, 4))
         tk.Label(page, text='修改后点击保存，立即生效', bg='white', fg='#9CA3AF',
-                 font=('Microsoft YaHei', 9)).pack(anchor='w', padx=24, pady=(0, 12))
+                 font=('Microsoft YaHei UI', 9, 'bold')).pack(anchor='w', padx=24, pady=(0, 12))
 
         BORDER = '#DDE3EA'
         key_entries = []
@@ -1976,7 +2003,7 @@ class OCRApp:
         reveal_keys_btn = tk.Button(page, text='临时显示密钥', command=reveal_keys,
                                     bg='white', fg='#374151', relief='flat',
                                     highlightthickness=1, highlightbackground=BORDER,
-                                    font=('Microsoft YaHei', 9),
+                                    font=('Microsoft YaHei UI', 9, 'bold'),
                                     padx=12, pady=5, cursor='hand2')
         reveal_keys_btn.pack(anchor='w', padx=24, pady=(0, 8))
 
@@ -1987,8 +2014,8 @@ class OCRApp:
             row = tk.Frame(parent, bg='white')
             row.pack(fill=tk.X, pady=4)
             tk.Label(row, text=label, bg='white', fg='#374151',
-                     font=('Microsoft YaHei', 9), width=22, anchor='w').pack(side=tk.LEFT)
-            e = tk.Entry(row, textvariable=var, font=('Microsoft YaHei', 9),
+                     font=('Microsoft YaHei UI', 9, 'bold'), width=22, anchor='w').pack(side=tk.LEFT)
+            e = tk.Entry(row, textvariable=var, font=('Microsoft YaHei UI', 9, 'bold'),
                          relief='flat', highlightthickness=1,
                          highlightbackground=BORDER, width=40, show='*')
             e.pack(side=tk.LEFT, ipady=5, padx=(8, 0))
@@ -2009,7 +2036,7 @@ class OCRApp:
         ]:
             tk.Frame(form, bg=BORDER, height=1).pack(fill=tk.X, pady=(12, 6))
             tk.Label(form, text=section_title, bg='white', fg='#1A6FD4',
-                     font=('Microsoft YaHei', 10, 'bold')).pack(anchor='w', pady=(0, 4))
+                     font=('Microsoft YaHei UI', 10, 'bold')).pack(anchor='w', pady=(0, 4))
             for var, lbl in pairs:
                 field(form, lbl, var)
 
@@ -2044,7 +2071,7 @@ class OCRApp:
 
         tk.Button(page, text='💾 保存密钥', command=save_keys,
                   bg='#1A6FD4', fg='white', relief='flat',
-                  font=('Microsoft YaHei', 10, 'bold'),
+                  font=('Microsoft YaHei UI', 10, 'bold'),
                   padx=24, pady=8, cursor='hand2').pack(anchor='w', padx=24, pady=16)
 
     def _build_unlock_page(self):
@@ -2053,7 +2080,7 @@ class OCRApp:
         page.configure(bg='white')
 
         tk.Label(page, text='🔓 解锁尺寸限制', bg='white', fg='#111827',
-                 font=('Microsoft YaHei', 14, 'bold')).pack(anchor='w', padx=24, pady=(18, 4))
+                 font=('Microsoft YaHei UI', 14, 'bold')).pack(anchor='w', padx=24, pady=(18, 4))
 
         form = tk.Frame(page, bg='white')
         form.pack(fill=tk.X, padx=24, pady=8)
@@ -2077,10 +2104,10 @@ class OCRApp:
         pwd_row = tk.Frame(form, bg='white')
         pwd_row.pack(fill=tk.X, pady=(0, 12))
         tk.Label(pwd_row, text='密码：', bg='white',
-                 font=('Microsoft YaHei', 9)).pack(side=tk.LEFT)
+                 font=('Microsoft YaHei UI', 9, 'bold')).pack(side=tk.LEFT)
         pwd_var = tk.StringVar()
         tk.Entry(pwd_row, textvariable=pwd_var, show='*',
-                 font=('Microsoft YaHei', 9), width=12,
+                 font=('Microsoft YaHei UI', 9, 'bold'), width=12,
                  relief='flat', highlightthickness=1,
                  highlightbackground=BORDER).pack(side=tk.LEFT, padx=8, ipady=4)
 
@@ -2091,8 +2118,8 @@ class OCRApp:
             f = tk.Frame(grid, bg='white')
             f.grid(row=row, column=col, sticky='w', padx=(0, 24), pady=3)
             tk.Label(f, text=lbl, bg='white', fg='#374151',
-                     font=('Microsoft YaHei', 8), width=14, anchor='w').pack(side=tk.LEFT)
-            tk.Entry(f, textvariable=vars_[k], font=('Microsoft YaHei', 9),
+                     font=('Microsoft YaHei UI', 8, 'bold'), width=14, anchor='w').pack(side=tk.LEFT)
+            tk.Entry(f, textvariable=vars_[k], font=('Microsoft YaHei UI', 9, 'bold'),
                      width=8, relief='flat', highlightthickness=1,
                      highlightbackground=BORDER).pack(side=tk.LEFT, ipady=4, padx=(4, 0))
 
@@ -2142,12 +2169,12 @@ class OCRApp:
         btn_row.pack(anchor='w', padx=24, pady=12)
         tk.Button(btn_row, text='💾 保存', command=save_limits,
                   bg='#1A6FD4', fg='white', relief='flat',
-                  font=('Microsoft YaHei', 10, 'bold'),
+                  font=('Microsoft YaHei UI', 10, 'bold'),
                   padx=20, pady=7, cursor='hand2').pack(side=tk.LEFT)
         tk.Button(btn_row, text='恢复默认', command=reset_defaults,
                   bg='white', fg='#374151', relief='flat',
                   highlightthickness=1, highlightbackground=BORDER,
-                  font=('Microsoft YaHei', 9),
+                  font=('Microsoft YaHei UI', 9, 'bold'),
                   padx=16, pady=7, cursor='hand2').pack(side=tk.LEFT, padx=(8, 0))
 
 
@@ -2232,7 +2259,7 @@ class OCRApp:
 
         def _on_click(event):
             width = max(canvas.winfo_width(), 1)
-            total_w = width * 2 / 3
+            total_w = width
             seg_w = total_w / len(steps)
             if event.x > total_w:
                 return
@@ -2249,7 +2276,7 @@ class OCRApp:
         if not canvas or not steps:
             return
 
-        blue = getattr(self, '_step_nav_blue', '#0066FF')
+        blue = getattr(self, '_step_nav_blue', '#FACC15')
         active_name = getattr(self, '_current_step', steps[0][0])
         active_index = next(
             (i for i, (name, _sub) in enumerate(steps) if name == active_name),
@@ -2258,8 +2285,7 @@ class OCRApp:
         w = max(canvas.winfo_width(), 1)
         h = max(canvas.winfo_height(), 66)
         count = len(steps)
-        # 三个按钮总宽度占导航栏 2/3
-        total_w = w * 2 / 3
+        total_w = w
         seg_w = total_w / count
         y0, y1 = 6, h - 6
         mid_y = h / 2
@@ -2281,16 +2307,16 @@ class OCRApp:
                         x0 + 2, y1
                     ]
                 canvas.create_polygon(
-                    points, fill='#EFF6FF', outline='#7DB5FF',
+                    points, fill='#FFF8DB', outline='#FACC15',
                     width=1.4, joinstyle=tk.ROUND
                 )
 
             num_x = x0 + 28
             title_x = x0 + 54
             circle_fill = blue if is_active else '#F1F3F6'
-            circle_text = '#FFFFFF' if is_active else '#111827'
-            title_color = blue if is_active else '#111827'
-            sub_color = '#4B5563'
+            circle_text = '#111827' if is_active else '#374151'
+            title_color = '#111827' if is_active else '#374151'
+            sub_color = '#888888'
 
             canvas.create_oval(
                 num_x - 13, mid_y - 13, num_x + 13, mid_y + 13,
@@ -2298,39 +2324,39 @@ class OCRApp:
             )
             canvas.create_text(
                 num_x, mid_y, text=str(i + 1), fill=circle_text,
-                font=('Segoe UI', 9, 'bold')
+                font=('Helvetica', 10, 'bold')
             )
             canvas.create_text(
                 title_x, mid_y - 9, text=name, anchor='w',
-                fill=title_color, font=('Microsoft YaHei UI', 10, 'bold')
+                fill=title_color, font=('Microsoft YaHei UI', 10, 'normal')
             )
             canvas.create_text(
                 title_x, mid_y + 10, text=sub, anchor='w',
-                fill=sub_color, font=('Microsoft YaHei UI', 7)
+                fill=sub_color, font=('Microsoft YaHei UI', 7, 'normal')
             )
 
             if i < count - 1 and not is_active:
                 canvas.create_text(
                     x1 - 18, mid_y, text='>', fill='#6B7280',
-                    font=('Segoe UI', 14)
+                    font=('Microsoft YaHei UI', 14, 'normal')
                 )
 
 
     def setup_ocr_tab(self):
         """合并页面 — 左侧操作面板 + 顶部4步骤标签 + 右侧内容区"""
-        BG = '#F5F7FB'
+        BG = '#F7F7F5'
         PANEL_BG = '#FFFFFF'
         BORDER = '#E5E7EB'
-        BLUE = '#0066FF'
+        BLUE = '#FACC15'
 
         self.ocr_tab.configure(bg=BG)
 
         page = tk.Frame(self.ocr_tab, bg=BG)
-        page.pack(fill=tk.BOTH, expand=True, padx=18, pady=16)
+        page.pack(fill=tk.BOTH, expand=True, padx=18, pady=14)
 
         # ── 卡片一：流程进度条 ──
         step_bar = self._rounded_card(page, bg=BG, card_bg='#FFFFFF',
-                                      radius=10, padding=2, height=84)
+                                      radius=8, padding=2, height=84)
         step_bar._wrapper.pack(fill=tk.X, pady=(0, 14))
         step_inner = tk.Frame(step_bar, bg='#FFFFFF')
         step_inner.pack(fill=tk.BOTH, expand=True, padx=20, pady=8)
@@ -2340,13 +2366,13 @@ class OCRApp:
 
         # ── 卡片二：参数配置面板 ──
         self._ocr_left = self._rounded_card(workspace, bg=BG, card_bg='#FFFFFF',
-                                            radius=10, padding=2, width=260)
+                                            radius=8, padding=2, width=250)
         self._ocr_left._wrapper.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 16))
         self._ocr_left.pack_propagate(False)
 
         # ── 卡片三：绘图交互区 ──
         main_right = self._rounded_card(workspace, bg=BG, card_bg='#FFFFFF',
-                                        radius=10, padding=2)
+                                        radius=8, padding=2)
         main_right._wrapper.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         self._step_btns = {}
@@ -2359,7 +2385,7 @@ class OCRApp:
 
         self._right_card_title = tk.Label(
             main_right, text='', bg='#FFFFFF', fg='#111827',
-            font=('Microsoft YaHei UI', 14, 'bold')
+            font=('Microsoft YaHei UI', 14, 'normal')
         )
         # 标题已隐藏，不 pack
         self._right_content = tk.Frame(main_right, bg='#FFFFFF')
@@ -2384,7 +2410,7 @@ class OCRApp:
 
         # result_text 隐藏占位
         self.result_text = scrolledtext.ScrolledText(
-            self.ocr_tab, width=1, height=1, font=('Microsoft YaHei', 10))
+            self.ocr_tab, width=1, height=1, font=('Microsoft YaHei UI', 10, 'bold'))
         self.result_text.pack_forget()
         self.context_menu = tk.Menu(self.result_text, tearoff=0)
         self.context_menu.add_command(label='复制选中内容', command=self.copy_selected)
@@ -2405,18 +2431,42 @@ class OCRApp:
         left_panel.configure(bg=BG)
         panel_root = left_panel
 
-        body = tk.Frame(left_panel, bg=BG)
-        body.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=(0, 2), pady=(2, 2))
+        # ── 滚动容器 ──
+        scroll_frame = tk.Frame(left_panel, bg=BG)
+        scroll_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=(0, 0), pady=(2, 2))
 
-        left_panel = body
+        scroll_canvas = tk.Canvas(scroll_frame, bg=BG, highlightthickness=0, bd=0)
+        scrollbar = ttk.Scrollbar(scroll_frame, orient=tk.VERTICAL, command=scroll_canvas.yview)
+        scroll_canvas.configure(yscrollcommand=scrollbar.set)
+
+        scrollable_frame = tk.Frame(scroll_canvas, bg=BG)
+        self._scroll_win_id = scroll_canvas.create_window((0, 0), window=scrollable_frame, anchor='nw')
+
+        def _on_frame_configure(event):
+            scroll_canvas.configure(scrollregion=scroll_canvas.bbox('all'))
+        def _on_canvas_configure(event):
+            scroll_canvas.itemconfig(self._scroll_win_id, width=event.width)
+
+        scrollable_frame.bind('<Configure>', _on_frame_configure)
+        scroll_canvas.bind('<Configure>', _on_canvas_configure)
+        scroll_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        def _on_mousewheel(event):
+            scroll_canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
+        scroll_canvas.bind('<MouseWheel>', _on_mousewheel)
+        # 绑定到 panel_root 确保在卡片内任意位置滚轮都生效
+        panel_root.bind('<MouseWheel>', _on_mousewheel)
+
+        left_panel = scrollable_frame
 
         def card(parent, title, show_title=True):
             """创建扁平分组，统一收纳在参数卡片内。"""
             outer = tk.Frame(parent, bg=BG)
-            outer.pack(fill=tk.X, padx=12, pady=(3, 0))
+            outer.pack(fill=tk.X, padx=8, pady=(4, 0))
             if show_title:
-                tk.Label(outer, text=title, bg=BG, fg='#374151',
-                         font=('Microsoft YaHei UI', 8, 'bold')).pack(anchor='w', pady=(0, 2))
+                tk.Label(outer, text=title, bg=BG, fg='#222222',
+                         font=('Microsoft YaHei UI', 10, 'bold')).pack(anchor='w', pady=(0, 4))
             inner = tk.Frame(outer, bg=BG)
             inner.pack(fill=tk.X)
             return inner
@@ -2424,49 +2474,49 @@ class OCRApp:
         # ── 1. 导入图片 ──
         drop_card = card(left_panel, '1. 导入图片')
         drop_zone = tk.Frame(drop_card, bg='#FDFEFF', cursor='hand2',
-                             highlightthickness=1, highlightbackground='#D8DEE8',
-                             width=140, height=110)
-        drop_zone.pack(anchor='center', padx=8, pady=(4, 2))
+                             highlightthickness=1, highlightbackground='#E6EAF0',
+                             width=168, height=92)
+        drop_zone.pack(anchor='center', padx=6, pady=(2, 4))
         drop_zone.pack_propagate(False)
         self.drop_zone = drop_zone
 
-        tk.Label(drop_zone, text='🖼', bg='white', fg='#BFDBFE',
-                 font=('Arial', 14)).pack(pady=(6, 0))
+        tk.Label(drop_zone, text='▧', bg='#FDFEFF', fg='#C7CDD6',
+                 font=('Microsoft YaHei UI', 14, 'normal')).pack(pady=(5, 0))
         self.file_label = tk.Label(drop_zone, text='拖拽图片到此处\n或',
-                                   bg='#FDFEFF', fg='#111827',
-                                   font=('Microsoft YaHei UI', 7, 'bold'), justify='center')
-        self.file_label.pack(pady=(0, 2))
+                                   bg='#FDFEFF', fg='#4E5969',
+                                   font=('Microsoft YaHei UI', 8, 'normal'), justify='center')
+        self.file_label.pack(pady=(0, 0))
         self.select_btn = tk.Button(drop_zone, text='选择图片',
                                     command=self.select_file,
-                                    bg=BLUE, fg='white', relief='flat',
-                                    bd=0, activebackground='#0052CC',
-                                    activeforeground='white',
-                                    font=('Microsoft YaHei UI', 8, 'bold'),
-                                    padx=14, pady=2, cursor='hand2')
+                                    bg=BLUE, fg='#111827', relief='flat',
+                                    bd=0, activebackground='#EAB308',
+                                    activeforeground='#111827',
+                                    font=('Microsoft YaHei UI', 9, 'normal'),
+                                    width=9, padx=6, pady=2, cursor='hand2')
         self.select_btn.pack()
 
         tk.Label(drop_card, text='支持 JPG / PNG / BMP / TIFF',
-                 bg='white', fg='#9CA3AF',
-                 font=('Microsoft YaHei', 6)).pack(anchor='w', padx=8, pady=(0, 0))
+                 bg='white', fg='#86909C',
+                 font=('Microsoft YaHei UI', 9, 'normal')).pack(anchor='w', padx=6, pady=(0, 0))
 
         # 清空按钮
         clear_row = tk.Frame(drop_card, bg='white')
-        clear_row.pack(fill=tk.X, padx=8, pady=(0, 1))
+        clear_row.pack(fill=tk.X, padx=6, pady=(0, 1))
         self.clear_btn = tk.Button(clear_row, text='清空',
                                    command=self.clear_result,
                                    bg='white', fg='#9CA3AF', relief='flat',
                                    bd=0, activebackground='white',
                                    activeforeground=BLUE,
-                                   font=('Microsoft YaHei UI', 8), cursor='hand2')
+                                   font=('Microsoft YaHei UI', 8, 'normal'), cursor='hand2')
         self.clear_btn.pack(side=tk.RIGHT)
 
         # 进度 / 状态
         self.progress_frame = tk.Frame(left_panel, bg=BG)
-        self.progress_frame.pack(fill=tk.X, padx=12, pady=(1, 0))
+        self.progress_frame.pack(fill=tk.X, padx=8, pady=(1, 0))
         self.progress_label = tk.Label(self.progress_frame, text='',
                                        bg=BG, fg='#F59E0B',
-                                       font=('Microsoft YaHei', 7),
-                                       wraplength=210, justify='left')
+                                       font=('Microsoft YaHei UI', 9, 'normal'),
+                                       wraplength=220, justify='left')
         self.progress_label.pack(anchor='w')
         self.progress_frame_row = self.progress_frame
         acc_range = f"{self.size_limits['accurate_min_width']}~{self.size_limits['accurate_max_width']}x{self.size_limits['accurate_min_height']}~{self.size_limits['accurate_max_height']}"
@@ -2474,14 +2524,14 @@ class OCRApp:
         gen_range = f"{self.size_limits['general_min_width']}~{self.size_limits['general_max_width']}x{self.size_limits['general_min_height']}~{self.size_limits['general_max_height']}"
         self.size_hint_label = tk.Label(self.progress_frame,
                                         text=f"高精度({acc_range})\n快速({bas_range})\n通用({gen_range})",
-                                        bg=BG, fg='#9CA3AF',
-                                        font=('Microsoft YaHei', 6), justify='left')
+                                        bg=BG, fg='#999999',
+                                        font=('Consolas', 7, 'normal'), justify='left')
         self.size_hint_label.pack(anchor='w')
 
         # ── 2. 识别设置 ──
         mode_card = card(left_panel, '2. 识别设置')
         mode_row = tk.Frame(mode_card, bg='white')
-        mode_row.pack(fill=tk.X, padx=8, pady=(2, 2))
+        mode_row.pack(fill=tk.X, padx=6, pady=(1, 1))
 
         self._selected_ocr_mode = tk.StringVar(value='accurate')
 
@@ -2491,18 +2541,18 @@ class OCRApp:
             self._selected_ocr_mode.set(mode)
             for m, b in _mode_btns.items():
                 if m == mode:
-                    b.config(bg=BLUE, fg='white', highlightthickness=0)
+                    b.config(bg=BLUE, fg='#111827', highlightthickness=0)
                 else:
                     b.config(bg='#F8FAFC', fg='#374151', highlightthickness=0)
 
         _mode_btns = {}
         for mode, text in [('accurate', '高精度'), ('basic', '快速'), ('general', '通用')]:
             b = tk.Button(mode_row, text=text,
-                          bg='#EEF2FF', fg='#374151', relief='flat',
-                          bd=0, activebackground='#DBEAFE',
-                          activeforeground=BLUE, highlightthickness=1,
-                          highlightbackground='#C7D2FE',
-                          font=('Microsoft YaHei UI', 9),
+                          bg='#F8FAFC', fg='#374151', relief='flat',
+                          bd=0, activebackground='#FFF8DB',
+                          activeforeground='#111827', highlightthickness=1,
+                          highlightbackground='#EEF0F3',
+                          font=('Microsoft YaHei UI', 10, 'normal'),
                           padx=10, pady=4, cursor='hand2', state=tk.DISABLED)
             b.pack(side=tk.LEFT, padx=(0, 5))
             b.bind('<Button-1>', lambda e, m=mode, btn=b: _select_mode(m, btn))
@@ -2517,17 +2567,17 @@ class OCRApp:
         # ── 3. 图片处理 ──
         proc_card = card(left_panel, '3. 图片处理')
         proc_row = tk.Frame(proc_card, bg='white')
-        proc_row.pack(fill=tk.X, padx=8, pady=(2, 2))
+        proc_row.pack(fill=tk.X, padx=6, pady=(1, 1))
         for text, cmd in [('拼接', self.merge_images),
                            ('截图', self.start_screenshot_capture),
                            ('裁剪', self.crop_and_merge_direct)]:
             tk.Button(proc_row, text=text, command=cmd,
-                      bg='#EEF2FF', fg='#374151', relief='flat',
-                      bd=0, activebackground='#DBEAFE',
-                      activeforeground=BLUE, highlightthickness=1,
-                      highlightbackground='#C7D2FE',
-                      font=('Microsoft YaHei UI', 9), padx=10, pady=4,
-                      cursor='hand2').pack(side=tk.LEFT, padx=(0, 5))
+                      bg='#F8FAFC', fg='#111827', relief='flat',
+                      bd=0, activebackground='#FFF8DB',
+                      activeforeground='#111827', highlightthickness=1,
+                      highlightbackground='#EEF0F3',
+                      font=('Microsoft YaHei UI', 10, 'normal'), padx=10, pady=4,
+                      cursor='hand2').pack(side=tk.LEFT, padx=(0, 4))
         self.merge_btn      = proc_row.winfo_children()[0]
         self.screenshot_btn = proc_row.winfo_children()[1]
         self.crop_merge_btn = proc_row.winfo_children()[2]
@@ -2539,35 +2589,35 @@ class OCRApp:
                            variable=self.enable_lasso_mode, value=val,
                            command=self.update_plot_view,
                            bg='white', fg='#374151',
-                           font=('Microsoft YaHei UI', 9),
-                           activebackground='white', selectcolor='#EAF2FF',
+                           font=('Microsoft YaHei UI', 10, 'normal'),
+                           activebackground='white', selectcolor='#FFF8DB',
                            justify='left').pack(
                                anchor='w', padx=(4, 8), pady=1)
 
         # ── 5. 书籍信息 ──
         book_card = card(left_panel, '5. 书籍信息')
         book_inner = tk.Frame(book_card, bg='white')
-        book_inner.pack(fill=tk.X, padx=8, pady=(1, 4))
+        book_inner.pack(fill=tk.X, padx=6, pady=(1, 2))
 
-        tk.Label(book_inner, text='书名', bg='white', fg='#6B7280',
-                 font=('Microsoft YaHei', 8)).grid(row=0, column=0, sticky='w', pady=1)
+        tk.Label(book_inner, text='书名', bg='white', fg='#222222',
+                 font=('Microsoft YaHei UI', 10, 'normal')).grid(row=0, column=0, sticky='w', pady=1)
         self._book_name_var = tk.StringVar(value=self.store.get('book_name', ''))
         book_name_entry = tk.Entry(book_inner, textvariable=self._book_name_var,
-                                   font=('Microsoft YaHei UI', 8), relief='flat',
+                                   font=('Microsoft YaHei UI', 10, 'normal'), relief='flat',
                                    bd=0, bg='#F8FAFC',
                                    highlightthickness=1, highlightbackground='#EDF2F7',
                                    highlightcolor=BLUE, width=14)
-        book_name_entry.grid(row=0, column=1, sticky='ew', padx=(6, 0), pady=1, ipady=2)
+        book_name_entry.grid(row=0, column=1, sticky='ew', padx=(4, 0), pady=1, ipady=3)
 
-        tk.Label(book_inner, text='当前页', bg='white', fg='#6B7280',
-                 font=('Microsoft YaHei', 8)).grid(row=1, column=0, sticky='w', pady=1)
+        tk.Label(book_inner, text='当前页', bg='white', fg='#222222',
+                 font=('Microsoft YaHei UI', 10, 'normal')).grid(row=1, column=0, sticky='w', pady=1)
         self._book_page_var = tk.StringVar(value=str(self.store.get('book_page', 1)))
         page_entry = tk.Entry(book_inner, textvariable=self._book_page_var,
-                              font=('Microsoft YaHei UI', 8), relief='flat',
+                              font=('Microsoft YaHei UI', 10, 'normal'), relief='flat',
                               bd=0, bg='#F8FAFC',
                               highlightthickness=1, highlightbackground='#EDF2F7',
                               highlightcolor=BLUE, width=14)
-        page_entry.grid(row=1, column=1, sticky='ew', padx=(6, 0), pady=1, ipady=2)
+        page_entry.grid(row=1, column=1, sticky='ew', padx=(4, 0), pady=1, ipady=1)
         book_inner.columnconfigure(1, weight=1)
 
         def _get_max_history_page():
@@ -2604,11 +2654,10 @@ class OCRApp:
 
         page_pick_btn = tk.Button(
             book_inner, text='⊕', command=_show_page_picker,
-            bg='#F8FAFC', fg='#6B7280', relief='flat',
+            bg='#F8FAFC', fg='#4E5969', relief='flat',
             bd=0, activebackground='#EAF2FF', activeforeground=BLUE,
-            font=('Microsoft YaHei UI', 9), cursor='hand2',
-            highlightthickness=0,
-            padx=4, pady=1
+            font=('Microsoft YaHei UI', 10, 'normal'), cursor='hand2',
+            highlightthickness=0, padx=6, pady=3
         )
         page_pick_btn.grid(row=1, column=2, padx=(4, 0), pady=1)
 
@@ -2630,12 +2679,12 @@ class OCRApp:
         # ── 开始识别按钮 ──
         self.copy_btn = tk.Button(panel_root, text='▶   开始识别',
                                   command=self._start_ocr_and_parse,
-                                  bg=BLUE, fg='white', relief='flat',
-                                  bd=0, activebackground='#0052CC',
-                                  activeforeground='white',
-                                  font=('Microsoft YaHei UI', 10, 'bold'),
-                                  pady=10, cursor='hand2', state=tk.DISABLED)
-        self.copy_btn.pack(side=tk.BOTTOM, fill=tk.X, padx=14, pady=(0, 12))
+                                  bg=BLUE, fg='#111827', relief='flat',
+                                  bd=0, activebackground='#EAB308',
+                                  activeforeground='#111827',
+                                  font=('Microsoft YaHei UI', 11, 'normal'),
+                                  padx=14, pady=10, cursor='hand2', state=tk.DISABLED)
+        self.copy_btn.pack(side=tk.BOTTOM, fill=tk.X, padx=12, pady=(0, 10))
 
         # 辅助按钮变量（已移到右上角设置，此处保留引用以兼容旧代码）
         self.add_zeros_btn = tk.Button(left_panel, state=tk.DISABLED)
@@ -2652,11 +2701,11 @@ class OCRApp:
         top_bar.pack(fill=tk.X, padx=16, pady=(14, 6))
         self._ocr_preview_title = tk.Label(top_bar, text='识别结果预览',
                                            bg=BG, fg='#111827',
-                                           font=('Microsoft YaHei', 12, 'bold'))
+                                           font=('Microsoft YaHei UI', 12, 'bold'))
         self._ocr_preview_title.pack(side=tk.LEFT)
 
         self.result_text = scrolledtext.ScrolledText(page, width=1, height=1,
-                                                     font=('Microsoft YaHei', 10))
+                                                     font=('Microsoft YaHei UI', 10, 'bold'))
         self.result_text.pack_forget()
         self.context_menu = tk.Menu(self.result_text, tearoff=0)
         self.context_menu.add_command(label='复制选中内容', command=self.copy_selected)
@@ -2686,7 +2735,7 @@ class OCRApp:
         bottom = tk.Frame(page, bg=BG)
         bottom.pack(fill=tk.X, padx=16, pady=(0, 8))
         self._preview_count_lbl = tk.Label(bottom, text='', bg=BG, fg='#6B7280',
-                                           font=('Microsoft YaHei', 9))
+                                           font=('Microsoft YaHei UI', 9, 'bold'))
         self._preview_count_lbl.pack(side=tk.LEFT)
 
     def _start_ocr_and_parse(self):
@@ -2740,15 +2789,15 @@ class OCRApp:
         tk.Label(top,
                  text=f'  {os.path.basename(image_path)}  |  {img.width}×{img.height} px',
                  bg='#2d2d2d', fg='#ccc',
-                 font=('Microsoft YaHei', 10)).pack(side=tk.LEFT, padx=12, pady=8)
+                 font=('Microsoft YaHei UI', 10, 'bold')).pack(side=tk.LEFT, padx=12, pady=8)
         tk.Button(top, text='💾 下载', command=lambda: self._save_image_file(image_path),
-                  bg='#4CAF50', fg='white', font=('Microsoft YaHei', 9),
+                  bg='#4CAF50', fg='white', font=('Microsoft YaHei UI', 9, 'bold'),
                   padx=12, pady=4, cursor='hand2').pack(side=tk.RIGHT, padx=6, pady=6)
         tk.Button(top, text='📌 弹出窗口', command=lambda: self._popout_image_window(image_path),
-                  bg='#1A6FD4', fg='white', font=('Microsoft YaHei', 9),
+                  bg='#1A6FD4', fg='white', font=('Microsoft YaHei UI', 9, 'bold'),
                   padx=12, pady=4, cursor='hand2').pack(side=tk.RIGHT, padx=4, pady=6)
         tk.Button(top, text='← 返回缩略图', command=self._build_gallery_page,
-                  bg='#EFF6FF', fg='#1A6FD4', font=('Microsoft YaHei', 9),
+                  bg='#EFF6FF', fg='#1A6FD4', font=('Microsoft YaHei UI', 9, 'bold'),
                   padx=12, pady=4, cursor='hand2').pack(side=tk.RIGHT, padx=4, pady=6)
 
         # 显示区域 — 用 Canvas 居中显示图片
@@ -2760,20 +2809,20 @@ class OCRApp:
         zoom_frame.pack(side=tk.RIGHT, padx=8, pady=4)
 
         tk.Button(zoom_frame, text='−', command=lambda: _do_zoom(1/1.3),
-                  bg='#444', fg='white', font=('Arial', 10, 'bold'),
+                  bg='#444', fg='white', font=('Microsoft YaHei UI', 10, 'bold'),
                   relief='flat', padx=6, pady=0, cursor='hand2',
                   width=2).pack(side=tk.LEFT)
         tk.Button(zoom_frame, text='＋', command=lambda: _do_zoom(1.3),
-                  bg='#444', fg='white', font=('Arial', 10, 'bold'),
+                  bg='#444', fg='white', font=('Microsoft YaHei UI', 10, 'bold'),
                   relief='flat', padx=6, pady=0, cursor='hand2',
                   width=2).pack(side=tk.LEFT, padx=(2, 0))
         tk.Button(zoom_frame, text='⊡', command=lambda: _do_zoom(0),
-                  bg='#444', fg='white', font=('Arial', 9, 'bold'),
+                  bg='#444', fg='white', font=('Microsoft YaHei UI', 9, 'bold'),
                   relief='flat', padx=6, pady=0, cursor='hand2',
                   width=2).pack(side=tk.LEFT, padx=(2, 0))
 
         zoom_lbl = tk.Label(zoom_frame, text='100%', bg='#2d2d2d', fg='#ccc',
-                            font=('Microsoft YaHei', 9), width=6, anchor='e')
+                            font=('Microsoft YaHei UI', 9, 'bold'), width=6, anchor='e')
         zoom_lbl.pack(side=tk.LEFT, padx=(4, 0))
 
         _img_ref = [img, None, None]  # [pil_image, PhotoImage, canvas_image_id]
@@ -2852,11 +2901,11 @@ class OCRApp:
         top = tk.Frame(win, bg='#2d2d2d')
         top.pack(fill=tk.X)
         tk.Label(top, text=f'  {os.path.basename(image_path)}  |  {img.width}×{img.height} px',
-                 bg='#2d2d2d', fg='#ccc', font=('Microsoft YaHei', 10)).pack(
+                 bg='#2d2d2d', fg='#ccc', font=('Microsoft YaHei UI', 10, 'bold')).pack(
                      side=tk.LEFT, padx=12, pady=8)
 
         zoom_lbl = tk.Label(top, text='100%', bg='#2d2d2d', fg='#999',
-                            font=('Microsoft YaHei', 9))
+                            font=('Microsoft YaHei UI', 9, 'bold'))
         zoom_lbl.pack(side=tk.RIGHT, padx=8, pady=8)
 
         _zoom = [scale]
@@ -2888,10 +2937,10 @@ class OCRApp:
         btn_row.pack(pady=(0, 8))
         tk.Button(btn_row, text='💾 保存图片',
                   command=lambda: self._save_image_file(image_path),
-                  bg='#4CAF50', fg='white', font=('Microsoft YaHei', 10),
+                  bg='#4CAF50', fg='white', font=('Microsoft YaHei UI', 10, 'bold'),
                   padx=16, pady=5, cursor='hand2').pack(side=tk.LEFT, padx=4)
         tk.Button(btn_row, text='关闭', command=win.destroy,
-                  bg='#757575', fg='white', font=('Microsoft YaHei', 10),
+                  bg='#757575', fg='white', font=('Microsoft YaHei UI', 10, 'bold'),
                   padx=16, pady=5, cursor='hand2').pack(side=tk.LEFT, padx=4)
 
         win.bind('<Escape>', lambda e: win.destroy())
@@ -3002,15 +3051,15 @@ class OCRApp:
 
         header = tk.Frame(page, bg='white')
         header.pack(fill=tk.X, padx=24, pady=(18, 8))
-        tk.Label(header, text='🖼 图片预览', bg='white', fg='#111827',
-                 font=('Microsoft YaHei', 14, 'bold')).pack(side=tk.LEFT)
+        tk.Label(header, text='🖼 图片预览', bg='white', fg='#222222',
+                 font=('Microsoft YaHei UI', 14, 'normal')).pack(side=tk.LEFT)
         tk.Button(header, text='清空', command=self._clear_gallery_preview,
                   bg='#FEF2F2', fg='#DC2626', relief='flat',
-                  font=('Microsoft YaHei', 9), padx=10, pady=4,
+                  font=('Microsoft YaHei UI', 9, 'bold'), padx=10, pady=4,
                   cursor='hand2').pack(side=tk.RIGHT, padx=(6, 0))
         tk.Button(header, text='🔄 刷新', command=self._build_gallery_page,
                   bg='#EFF6FF', fg='#1A6FD4', relief='flat',
-                  font=('Microsoft YaHei', 9), padx=10, pady=4,
+                  font=('Microsoft YaHei UI', 9, 'bold'), padx=10, pady=4,
                   cursor='hand2').pack(side=tk.RIGHT)
 
         # 收集所有卡片数据：未识别/待处理优先，已识别内容按最近时间倒序。
@@ -3095,7 +3144,7 @@ class OCRApp:
             empty.pack(fill=tk.BOTH, expand=True)
             tk.Label(empty, text='暂无图片\n\n请先执行 OCR 识别或拼接/截图/裁剪',
                      bg='white', fg='#9CA3AF',
-                     font=('Microsoft YaHei', 12)).pack(expand=True)
+                     font=('Microsoft YaHei UI', 12, 'bold')).pack(expand=True)
             return
 
         page_size, page_cols, page_rows = _calc_gallery_page_size()
@@ -3117,20 +3166,20 @@ class OCRApp:
         tk.Label(
             pager,
             text=f'共 {len(cards)} 张 | 第 {page_index + 1}/{total_pages} 页 | 每页 {page_size} 张（{page_cols}×{page_rows}）',
-            bg='white', fg='#6B7280', font=('Microsoft YaHei', 9)
+            bg='white', fg='#6B7280', font=('Microsoft YaHei UI', 9, 'bold')
         ).pack(side=tk.LEFT)
         tk.Button(
             pager, text='下一页', command=lambda: _goto_gallery_page(1),
             state=tk.NORMAL if page_index < total_pages - 1 else tk.DISABLED,
             bg='#EFF6FF', fg='#1A6FD4', relief='flat',
-            font=('Microsoft YaHei', 9), padx=12, pady=4,
+            font=('Microsoft YaHei UI', 9, 'bold'), padx=12, pady=4,
             cursor='hand2' if page_index < total_pages - 1 else 'arrow'
         ).pack(side=tk.RIGHT)
         tk.Button(
             pager, text='上一页', command=lambda: _goto_gallery_page(-1),
             state=tk.NORMAL if page_index > 0 else tk.DISABLED,
             bg='#F3F4F6', fg='#374151', relief='flat',
-            font=('Microsoft YaHei', 9), padx=12, pady=4,
+            font=('Microsoft YaHei UI', 9, 'bold'), padx=12, pady=4,
             cursor='hand2' if page_index > 0 else 'arrow'
         ).pack(side=tk.RIGHT, padx=(6, 0))
 
@@ -3241,14 +3290,14 @@ class OCRApp:
 
             # 角标
             tk.Label(thumb_frame, text=badge_text, bg=bg_col, fg='white',
-                     font=('Microsoft YaHei', 7), padx=4, pady=1).place(x=0, y=0)
+                     font=('Microsoft YaHei UI', 7, 'bold'), padx=4, pady=1).place(x=0, y=0)
 
             # 文件名
             tk.Label(card_frame, text=label_text, bg='white', fg='#374151',
-                     font=('Microsoft YaHei', 8),
+                     font=('Microsoft YaHei UI', 8, 'bold'),
                      wraplength=CARD_W - 12, justify='center').pack(pady=(3, 0))
             tk.Label(card_frame, text=size_text, bg='white', fg='#9CA3AF',
-                     font=('Microsoft YaHei', 7)).pack(pady=(0, 3))
+                     font=('Microsoft YaHei UI', 7, 'bold')).pack(pady=(0, 3))
 
             # 按钮行
             btn_r = tk.Frame(card_frame, bg='white')
@@ -3260,28 +3309,28 @@ class OCRApp:
                 tk.Button(action_row, text='查看',
                           command=lambda en=card['entry']: self._view_merge_entry(en),
                           bg='#EFF6FF', fg='#1A6FD4', relief='flat',
-                          font=('Microsoft YaHei', 7), padx=4, pady=2,
+                          font=('Microsoft YaHei UI', 7, 'bold'), padx=4, pady=2,
                           cursor='hand2').pack(side=tk.LEFT, padx=(0, 2))
                 tk.Button(action_row, text='保存',
                           command=lambda en=card['entry']: self._save_merge_entry(en),
                           bg='#F0FDF4', fg='#16A34A', relief='flat',
-                          font=('Microsoft YaHei', 7), padx=4, pady=2,
+                          font=('Microsoft YaHei UI', 7, 'bold'), padx=4, pady=2,
                           cursor='hand2').pack(side=tk.LEFT, padx=(0, 2))
                 tk.Button(btn_r, text='继续编辑',
                           command=lambda en=card['entry']: self._reopen_merge_entry(en),
                           bg='#FFF7ED', fg='#C2410C', relief='flat',
-                          font=('Microsoft YaHei', 7), padx=4, pady=2,
+                          font=('Microsoft YaHei UI', 7, 'bold'), padx=4, pady=2,
                           cursor='hand2').pack(fill=tk.X, pady=(2, 0))
             else:
                 tk.Button(btn_r, text='查看',
                           command=lambda p=card['path']: self._preview_full_image(p),
                           bg='#EFF6FF', fg='#1A6FD4', relief='flat',
-                          font=('Microsoft YaHei', 7), padx=4, pady=2,
+                          font=('Microsoft YaHei UI', 7, 'bold'), padx=4, pady=2,
                           cursor='hand2').pack(side=tk.LEFT, padx=(0, 2))
                 tk.Button(btn_r, text='保存',
                           command=lambda p=card['path']: self._save_image_file(p),
                           bg='#F0FDF4', fg='#16A34A', relief='flat',
-                          font=('Microsoft YaHei', 7), padx=4, pady=2,
+                          font=('Microsoft YaHei UI', 7, 'bold'), padx=4, pady=2,
                           cursor='hand2').pack(side=tk.LEFT)
 
         def _layout_gallery():
@@ -3374,7 +3423,7 @@ class OCRApp:
 
     def _step_switch(self, name, index):
         """切换步骤标签页"""
-        BLUE = '#0066FF'
+        BLUE = '#FACC15'
         BG = '#FFFFFF'
         self._current_step = name
         if hasattr(self, '_step_nav_canvas'):
@@ -3382,17 +3431,17 @@ class OCRApp:
         for n, (col, num_lbl, name_lbl, sub_lbl, bar) in self._step_btns.items():
             pill = num_lbl.master
             if n == name:
-                pill.config(bg='#EAF2FF')
-                num_lbl.config(bg='#EAF2FF', fg=BLUE,
-                               font=('Segoe UI', 13, 'bold'))
-                name_lbl.config(bg='#EAF2FF', fg=BLUE,
+                pill.config(bg='#FFF8DB')
+                num_lbl.config(bg='#FFF8DB', fg='#111827',
+                               font=('Microsoft YaHei UI', 13, 'bold'))
+                name_lbl.config(bg='#FFF8DB', fg='#111827',
                                 font=('Microsoft YaHei UI', 10, 'bold'))
-                sub_lbl.config(bg=BG, fg='#60A5FA')
+                sub_lbl.config(bg=BG, fg='#C99700')
                 bar.config(bg=BG)
             else:
                 pill.config(bg='#F3F4F6')
                 num_lbl.config(bg='#F3F4F6', fg='#6B7280',
-                               font=('Segoe UI', 13, 'bold'))
+                               font=('Microsoft YaHei UI', 13, 'bold'))
                 name_lbl.config(bg='#F3F4F6', fg='#6B7280',
                                 font=('Microsoft YaHei UI', 10, 'bold'))
                 sub_lbl.config(bg=BG, fg='#9CA3AF')
@@ -3441,7 +3490,7 @@ class OCRApp:
 
         def sec(parent, title):
             tk.Label(parent, text=title, bg=PANEL_BG, fg='#374151',
-                     font=('Microsoft YaHei', self.current_font_size, 'bold')).pack(
+                     font=('Microsoft YaHei UI', self.current_font_size, 'bold')).pack(
                          anchor='w', padx=16, pady=(16, 6))
 
         sec(self._panel_plot, '绘图模式切换')
@@ -3452,7 +3501,7 @@ class OCRApp:
             tk.Radiobutton(self._panel_plot, text=text,
                            variable=self.enable_lasso_mode, value=val,
                            command=self.update_plot_view,
-                           bg=PANEL_BG, font=('Microsoft YaHei', 9),
+                           bg=PANEL_BG, font=('Microsoft YaHei UI', 9, 'bold'),
                            wraplength=170, justify='left').pack(
                                fill=tk.X, anchor='w', padx=16, pady=4)
 
@@ -3471,7 +3520,7 @@ class OCRApp:
         has_accurate = bool(API_KEY and SECRET_KEY)
         has_basic    = bool(API_KEY_BASIC and SECRET_KEY_BASIC)
         has_general  = bool(API_KEY_GENERAL and SECRET_KEY_GENERAL)
-        BLUE = '#0066FF'
+        BLUE = '#FACC15'
 
         availability = {
             'accurate': has_accurate,
@@ -3497,10 +3546,10 @@ class OCRApp:
         selected = self._selected_ocr_mode.get()
         for mode, btn in self._mode_btns.items():
             if mode == selected and availability[mode]:
-                btn.config(bg=BLUE, fg='white',
+                btn.config(bg=BLUE, fg='#111827',
                            highlightthickness=0)
             elif availability[mode]:
-                btn.config(bg='#F8FAFC', fg=BLUE,
+                btn.config(bg='#F8FAFC', fg='#111827',
                            highlightthickness=0)
             else:
                 btn.config(bg='#F8FAFC', fg='#9CA3AF',
@@ -3596,11 +3645,14 @@ class OCRApp:
         PANEL_BG = '#F7F9FC'
 
         def flat_btn(parent, text, cmd, bg='white', fg='#374151', **kw):
+            font = kw.pop('font', ('Microsoft YaHei UI', 9, 'bold'))
+            padx = kw.pop('padx', 8)
+            pady = kw.pop('pady', 4)
             b = tk.Button(parent, text=text, command=cmd, bg=bg, fg=fg,
                           relief='flat', bd=0, cursor='hand2',
-                          font=('Microsoft YaHei', 9),
+                          font=font,
                           highlightthickness=1, highlightbackground=BORDER,
-                          padx=8, pady=4, **kw)
+                          padx=padx, pady=pady, **kw)
             return b
 
         # ════════════════════════════════
@@ -3742,14 +3794,20 @@ class OCRApp:
 
         tk.Frame(r_inner, bg=BORDER, width=1).pack(side=tk.LEFT, fill=tk.Y, padx=6)
 
-        self.separator_btn = flat_btn(r_inner, '分隔: ----', self.toggle_report_separator)
+        self.separator_btn = flat_btn(
+            r_inner, '分隔: ----', self.toggle_report_separator,
+            font=('Microsoft YaHei UI', 8, 'bold'), width=10, padx=4, pady=3
+        )
         self.separator_btn.pack(side=tk.LEFT, padx=(0, 4))
-        self.report_format_btn = flat_btn(r_inner, '格式: 仅名称', self.toggle_report_format)
+        self.report_format_btn = flat_btn(
+            r_inner, '格式: 仅名称', self.toggle_report_format,
+            font=('Microsoft YaHei UI', 8, 'bold'), width=11, padx=4, pady=3
+        )
         self.report_format_btn.pack(side=tk.LEFT, padx=(0, 4))
 
         self.report_text = scrolledtext.ScrolledText(
             self.tab_report, wrap=tk.WORD,
-            font=('Microsoft YaHei', 11),
+            font=('Microsoft YaHei UI', 11, 'bold'),
             relief='flat', bd=0,
             bg='white'
         )
@@ -3784,7 +3842,7 @@ class OCRApp:
             text="交互绘图区将在首次打开时加载",
             bg="white",
             fg="#666",
-            font=("Microsoft YaHei", 13)
+            font=("Microsoft YaHei UI", 13, "bold")
         ).pack(expand=True)
 
     def on_classifier_tab_changed(self, event=None):
@@ -3917,7 +3975,7 @@ class OCRApp:
         win.transient(self.root)
         self._history_win = win
 
-        tk.Label(win, text="📋 历史记录", font=("Microsoft YaHei", 11, "bold"),
+        tk.Label(win, text="📋 历史记录", font=("Microsoft YaHei UI", 11, "bold"),
                  bg="#1E293B", fg="white").pack(fill=tk.X, ipady=8)
 
         frame = tk.Frame(win)
@@ -3926,7 +3984,7 @@ class OCRApp:
         sb = ttk.Scrollbar(frame, orient=tk.VERTICAL)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
 
-        self._history_listbox = tk.Listbox(frame, font=("Microsoft YaHei", 10),
+        self._history_listbox = tk.Listbox(frame, font=("Microsoft YaHei UI", 10, "bold"),
                                            yscrollcommand=sb.set, activestyle='dotbox',
                                            selectbackground="#2563EB", selectforeground="white",
                                            relief="flat", bd=0)
@@ -3943,7 +4001,7 @@ class OCRApp:
         btn_frame = tk.Frame(win, bg="#F1F5F9")
         btn_frame.pack(fill=tk.X, pady=4)
         tk.Button(btn_frame, text="清空历史", command=self._clear_history,
-                  bg="#EF4444", fg="white", relief="flat", font=("Microsoft YaHei", 9),
+                  bg="#EF4444", fg="white", relief="flat", font=("Microsoft YaHei UI", 9, "bold"),
                   padx=10, pady=4).pack(side=tk.RIGHT, padx=8)
 
         self._refresh_history_panel()
@@ -4280,29 +4338,29 @@ class OCRApp:
         header.pack(fill=tk.X)
         header.pack_propagate(False)
         tk.Label(header, text="＋  新增条目", bg="#22C55E", fg="white",
-                 font=("Microsoft YaHei", 13, "bold")).pack(side=tk.LEFT, padx=18, pady=12)
+                 font=("Microsoft YaHei UI", 13, "bold")).pack(side=tk.LEFT, padx=18, pady=12)
 
         # ── 插入位置提示 ──
         hint_frame = tk.Frame(dialog, bg="#F0FDF4", bd=0)
         hint_frame.pack(fill=tk.X, padx=16, pady=(12, 0))
         tk.Label(hint_frame, text=f"📍 将插入到「{insert_after_label}」下方",
                  bg="#F0FDF4", fg="#16A34A",
-                 font=("Microsoft YaHei", 9)).pack(anchor="w", padx=10, pady=6)
+                 font=("Microsoft YaHei UI", 9, "bold")).pack(anchor="w", padx=10, pady=6)
 
         # ── 表单 ──
         form = tk.Frame(dialog, bg="#F8FAFC")
         form.pack(fill=tk.X, padx=16, pady=(10, 0))
 
         tk.Label(form, text="名称", bg="#F8FAFC", fg="#374151",
-                 font=("Microsoft YaHei", self.current_font_size, "bold")).grid(row=0, column=0, sticky="w", pady=(0, 6))
-        n_ent = tk.Entry(form, font=("Microsoft YaHei", 11), bg="white",
+                 font=("Microsoft YaHei UI", self.current_font_size, "bold")).grid(row=0, column=0, sticky="w", pady=(0, 6))
+        n_ent = tk.Entry(form, font=("Microsoft YaHei UI", 11, "bold"), bg="white",
                          relief="flat", bd=0, highlightthickness=2,
                          highlightbackground="#D1D5DB", highlightcolor="#22C55E")
         n_ent.grid(row=0, column=1, sticky="ew", padx=(10, 0), pady=(0, 6), ipady=5)
         n_ent.focus_set()
 
         tk.Label(form, text="组", bg="#F8FAFC", fg="#374151",
-                 font=("Microsoft YaHei", self.current_font_size, "bold")).grid(row=1, column=0, sticky="w", pady=(6, 0))
+                 font=("Microsoft YaHei UI", self.current_font_size, "bold")).grid(row=1, column=0, sticky="w", pady=(6, 0))
 
         # A/B/C 三个切换按钮
         grp_frame = tk.Frame(form, bg="#F8FAFC")
@@ -4325,7 +4383,7 @@ class OCRApp:
                     btn.config(bg=colors[grp][1], fg=colors[grp][0], relief="flat")
 
         for g in ['A', 'B', 'C', 'D']:
-            b = tk.Button(grp_frame, text=f"  {g}  ", font=("Microsoft YaHei", 10, "bold"),
+            b = tk.Button(grp_frame, text=f"  {g}  ", font=("Microsoft YaHei UI", 10, "bold"),
                           relief="flat", bd=0, cursor="hand2", padx=6, pady=4,
                           command=lambda grp=g: set_group(grp))
             b.pack(side=tk.LEFT, padx=(0, 6))
@@ -4441,16 +4499,16 @@ class OCRApp:
                 messagebox.showerror("错误", f"添加失败: {e}", parent=dialog)
 
         tk.Button(btn_frame, text="保存", command=lambda: do_save(False),
-                  bg="#22C55E", fg="white", font=("Microsoft YaHei", 10, "bold"),
+                  bg="#22C55E", fg="white", font=("Microsoft YaHei UI", 10, "bold"),
                   relief="flat", bd=0, padx=18, pady=7, cursor="hand2").pack(side=tk.LEFT)
         tk.Button(btn_frame, text="保存并继续", command=lambda: do_save(True),
-                  bg="#2563EB", fg="white", font=("Microsoft YaHei", 10),
+                  bg="#2563EB", fg="white", font=("Microsoft YaHei UI", 10, "bold"),
                   relief="flat", bd=0, padx=18, pady=7, cursor="hand2").pack(side=tk.LEFT, padx=(8, 0))
         tk.Button(btn_frame, text="取消", command=dialog.destroy,
-                  bg="#E5E7EB", fg="#374151", font=("Microsoft YaHei", 10),
+                  bg="#E5E7EB", fg="#374151", font=("Microsoft YaHei UI", 10, "bold"),
                   relief="flat", bd=0, padx=18, pady=7, cursor="hand2").pack(side=tk.LEFT, padx=(8, 0))
         tk.Label(btn_frame, text="Enter 保存", bg="#F8FAFC", fg="#9CA3AF",
-                 font=("Microsoft YaHei", 8)).pack(side=tk.RIGHT, padx=4)
+                 font=("Microsoft YaHei UI", 8, "bold")).pack(side=tk.RIGHT, padx=4)
 
         dialog.bind('<Return>', lambda e: do_save(False))
         dialog.bind('<Escape>', lambda e: dialog.destroy())
@@ -4505,7 +4563,7 @@ class OCRApp:
 
             combo = ttk.Combobox(self.tree, values=['A', 'B', 'C', 'D'],
                                  state='readonly',
-                                 font=("Microsoft YaHei", self.current_font_size))
+                                 font=("Microsoft YaHei UI", self.current_font_size))
             combo.set(current_group)
             combo.place(x=x, y=y, width=width + 2, height=height + 2)
             combo.focus_set()
@@ -4775,7 +4833,7 @@ class OCRApp:
             self.ax.set_yticks(ticks)
             self.ax.set_xticklabels([f'{t:.1f}' for t in ticks])
             self.ax.set_yticklabels([f'{t:.1f}' for t in ticks])
-            self.ax.set_facecolor('#EAF4FF')
+            self.ax.set_facecolor('#FFFFFF')
             handles = [
                 (0, 0), (0.5, 0), (1, 0),
                 (0, 0.5), (1, 0.5),
@@ -4783,16 +4841,16 @@ class OCRApp:
             ]
             self.ax.scatter(
                 [p[0] for p in handles], [p[1] for p in handles],
-                marker='s', s=36, facecolors='#D7EBFF',
-                edgecolors='#2F80C9', linewidths=1.0,
+                marker='s', s=36, facecolors='#FACC15',
+                edgecolors='#EAB308', linewidths=1.0,
                 zorder=8, clip_on=False
             )
-        self.ax.grid(True, color='#E5E7EB', linewidth=0.8)
+        self.ax.grid(True, color='#EAECEF', linewidth=0.8)
         self.ax.tick_params(colors='#64748B', labelsize=9)
         for spine in self.ax.spines.values():
-            spine.set_color('#2F80C9' if self.df.empty else '#CBD5E1')
+            spine.set_color('#FACC15' if self.df.empty else '#CBD5E1')
             spine.set_linewidth(1.2 if self.df.empty else 1.0)
-        for y in self.thresholds: self.ax.axhline(y=y, color='blue', linestyle='--', alpha=0.5)
+        for y in self.thresholds: self.ax.axhline(y=y, color='#D69E00', linestyle='--', alpha=0.5)
         if self.enable_lasso_mode.get():
             self.lasso = LassoSelector(self.ax, onselect=self.on_lasso_select, props={'color': 'red', 'linewidth': 1.5})
         else:
@@ -4962,7 +5020,7 @@ class OCRApp:
             
             # 构建字体配置
             font_config = []
-            font_config.append(style.get('font_family', 'Microsoft YaHei'))
+            font_config.append(style.get('font_family', 'Microsoft YaHei UI'))
             font_config.append(style.get('font_size', self.current_font_size))
             
             font_weight = style.get('font_weight', 'normal')
@@ -4993,23 +5051,23 @@ class OCRApp:
         # C组标签
         self.tree.tag_configure('group_c', 
                                foreground='#006600',  # 深绿色
-                               font=("Microsoft YaHei", self.current_font_size))
+                               font=("Microsoft YaHei UI", self.current_font_size))
         
         # C组标记状态标签
         self.tree.tag_configure('group_c_marked',
                                foreground='#006600',  # 深绿色
-                               font=("Microsoft YaHei", self.current_font_size),
+                               font=("Microsoft YaHei UI", self.current_font_size),
                                background='#FFFACD')  # 标记背景色
         
         # B组标签（默认样式）
         self.tree.tag_configure('group_b', 
                                foreground='#000000',  # 黑色
-                               font=("Microsoft YaHei", self.current_font_size))
+                               font=("Microsoft YaHei UI", self.current_font_size))
         
         # B组标记状态标签
         self.tree.tag_configure('group_b_marked',
                                foreground='#000000',  # 黑色
-                               font=("Microsoft YaHei", self.current_font_size),
+                               font=("Microsoft YaHei UI", self.current_font_size),
                                background='#FFFACD')  # 标记背景色
     
     def get_item_tags(self, label_text, group, is_marked):
@@ -5318,12 +5376,12 @@ class OCRApp:
         # 更新 Treeview 样式 — 只改字体和行高，不动内部布局
         style = ttk.Style()
         style.configure("Treeview",
-                        font=("Microsoft YaHei", s),
+                        font=("Microsoft YaHei UI", s, "bold"),
                         rowheight=max(int(s * 2.2), s + 10),
                         background="white",
                         fieldbackground="white")
         style.configure("Treeview.Heading",
-                        font=("Microsoft YaHei", max(s - 1, 8)),
+                        font=("Microsoft YaHei UI", max(s - 1, 8), "bold"),
                         foreground="#6B7280",
                         background="#F7F9FC",
                         relief="flat",
@@ -5339,7 +5397,7 @@ class OCRApp:
         self.tree.tag_configure('row_odd', background='#F5F5F5')
         # 低置信度警告背景（优先级最高，覆盖交替背景）
         self.tree.tag_configure('low_conf', background='#FFF9C4')
-        self.report_text.configure(font=("Microsoft YaHei", s))
+        self.report_text.configure(font=("Microsoft YaHei UI", s, "bold"))
 
     def on_right_click(self, event):
         """右键点击事件 - 统一弹菜单，不直接执行操作"""
@@ -5804,13 +5862,13 @@ class OCRApp:
             if editor_widget == 'combobox':
                 # 创建下拉框编辑器
                 self.inline_editor = ttk.Combobox(self.tree, values=['A', 'B', 'C', 'D'], state="readonly",
-                                                font=("Microsoft YaHei", self.current_font_size))
+                                                font=("Microsoft YaHei UI", self.current_font_size))
                 self.inline_editor.place(x=x, y=y, width=width, height=height)
                 self.inline_editor.set(current_value)
             else:
                 # 创建文本框编辑器
                 self.inline_editor = tk.Entry(self.tree,
-                                              font=("Microsoft YaHei", self.current_font_size),
+                                              font=("Microsoft YaHei UI", self.current_font_size),
                                               bg="#EFF6FF",
                                               highlightthickness=2,
                                               highlightbackground="#2563EB",
@@ -5963,23 +6021,23 @@ class OCRApp:
         if state == 'running':
             bar.configure(bg='#FFF7ED')
             bar.winfo_children()[0].configure(bg='#FFF7ED') if bar.winfo_children() else None
-            self._status_dot.config(bg='#FFF7ED', fg='#F97316', font=('Arial', 12))
+            self._status_dot.config(bg='#FFF7ED', fg='#F97316', font=('Microsoft YaHei UI', 12, 'bold'))
             self._status_text.config(bg='#FFF7ED', fg='#F97316',
                                      text='⚡ 识别中...',
-                                     font=('Microsoft YaHei', 9, 'bold'))
+                                     font=('Microsoft YaHei UI', 9, 'bold'))
         elif state == 'done':
             bar.configure(bg='#ECFDF5')
-            self._status_dot.config(bg='#ECFDF5', fg='#22C55E', font=('Arial', 10))
+            self._status_dot.config(bg='#ECFDF5', fg='#22C55E', font=('Microsoft YaHei UI', 10, 'bold'))
             self._status_text.config(bg='#ECFDF5', fg='#16A34A',
                                      text='✓ 识别成功',
-                                     font=('Microsoft YaHei', 9, 'bold'))
+                                     font=('Microsoft YaHei UI', 9, 'bold'))
             self.root.after(4000, lambda: self._set_status('idle'))
         else:
             bar.configure(bg='#FFFFFF')
-            self._status_dot.config(bg='#FFFFFF', fg='#3B82F6', font=('Arial', 10))
+            self._status_dot.config(bg='#FFFFFF', fg='#3B82F6', font=('Microsoft YaHei UI', 10, 'bold'))
             self._status_text.config(bg='#FFFFFF', fg='#6B7280',
                                      text='就绪',
-                                     font=('Microsoft YaHei', 9))
+                                     font=('Microsoft YaHei UI', 9, 'bold'))
 
     def show_toast(self, message, duration=3000):
         """右下角从右向左划入的 Toast 通知（正方形，与软件风格一致）"""
@@ -6014,10 +6072,10 @@ class OCRApp:
             tk.Frame(inner, bg=BLUE, height=4).pack(fill=tk.X)
 
             tk.Label(inner, text='✓', bg=WHITE, fg=BLUE,
-                     font=('Microsoft YaHei', 22, 'bold')).pack(pady=(18, 4))
+                     font=('Microsoft YaHei UI', 22, 'bold')).pack(pady=(18, 4))
 
             msg_lbl = tk.Label(inner, text=message, bg=WHITE, fg=DARK,
-                     font=('Microsoft YaHei', 10),
+                     font=('Microsoft YaHei UI', 10, 'bold'),
                      wraplength=FIXED_SIZE - 28,
                      justify='center')
             msg_lbl.pack(padx=14, pady=(0, 18))
@@ -6084,7 +6142,7 @@ class OCRApp:
             
             self.temp_message_label = tk.Label(self.message_area, text=message, 
                                              bg="#E8F5E8", fg="#2E7D32", 
-                                             font=("Microsoft YaHei", 9), 
+                                             font=("Microsoft YaHei UI", 9, "bold"), 
                                              padx=10, pady=3,
                                              relief=tk.RAISED, bd=1)
             self.temp_message_label.pack(side=tk.RIGHT)
@@ -6249,19 +6307,19 @@ class OCRApp:
         
         # 标题
         tk.Label(dialog, text="📝 批量修改组值", 
-                font=("Microsoft YaHei", 14, "bold"), fg="#333").pack(pady=(20, 15))
+                font=("Microsoft YaHei UI", 14, "bold"), fg="#333").pack(pady=(20, 15))
         
         # 信息显示
         info_text = f"已选择 {len(data_items)} 个数据项"
         tk.Label(dialog, text=info_text, 
-                font=("Microsoft YaHei", 10), fg="#666").pack(pady=(0, 10))
+                font=("Microsoft YaHei UI", 10, "bold"), fg="#666").pack(pady=(0, 10))
         
         # 预览框架
         preview_frame = tk.LabelFrame(dialog, text="预览选中的项目", padx=10, pady=10)
         preview_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
         
         # 创建预览列表
-        preview_listbox = tk.Listbox(preview_frame, height=8, font=("Microsoft YaHei", 9))
+        preview_listbox = tk.Listbox(preview_frame, height=8, font=("Microsoft YaHei UI", 9, "bold"))
         preview_scrollbar = ttk.Scrollbar(preview_frame, orient=tk.VERTICAL, command=preview_listbox.yview)
         preview_listbox.configure(yscrollcommand=preview_scrollbar.set)
         
@@ -6277,12 +6335,12 @@ class OCRApp:
         group_frame.pack(fill=tk.X, padx=20, pady=10)
         
         tk.Label(group_frame, text="选择新的组值:", 
-                font=("Microsoft YaHei", 11, "bold")).pack(side=tk.LEFT)
+                font=("Microsoft YaHei UI", 11, "bold")).pack(side=tk.LEFT)
         
         group_var = tk.StringVar(value="A")
         group_combo = ttk.Combobox(group_frame, textvariable=group_var, 
                                   values=['A', 'B', 'C', 'D'], state="readonly", 
-                                  font=("Microsoft YaHei", 10), width=10)
+                                  font=("Microsoft YaHei UI", 10, "bold"), width=10)
         group_combo.pack(side=tk.LEFT, padx=10)
         
         # 按钮框架
@@ -6332,11 +6390,11 @@ class OCRApp:
         
         # 按钮
         tk.Button(btn_frame, text="应用修改", command=apply_batch_change,
-                 bg="#4CAF50", fg="white", font=("Microsoft YaHei", 10, "bold"),
+                 bg="#4CAF50", fg="white", font=("Microsoft YaHei UI", 10, "bold"),
                  padx=20, pady=8).pack(side=tk.RIGHT, padx=5)
         
         tk.Button(btn_frame, text="取消", command=dialog.destroy,
-                 bg="#757575", fg="white", font=("Microsoft YaHei", 10),
+                 bg="#757575", fg="white", font=("Microsoft YaHei UI", 10, "bold"),
                  padx=20, pady=8).pack(side=tk.RIGHT)
     
     def edit_item_name(self, iid):
@@ -6466,7 +6524,7 @@ class OCRApp:
                 color_window.geometry(f"400x300+{x}+{y}")
                 
                 tk.Label(color_window, text=f"为分类「{category_name}」选择颜色", 
-                        font=("Arial", 12, "bold")).pack(pady=15)
+                        font=("Microsoft YaHei UI", 12, "bold")).pack(pady=15)
                 
                 selected_color = [current_color]  # 用列表存储选择的颜色
                 
@@ -6721,7 +6779,7 @@ class OCRApp:
         
         # 标题
         tk.Label(rules_window, text="🔤 选择空格插入规则", 
-                font=("Arial", 14, "bold")).pack(pady=15)
+                font=("Microsoft YaHei UI", 14, "bold")).pack(pady=15)
         
         # 预设选择框架
         preset_frame = tk.LabelFrame(rules_window, text="快速选择预设", padx=10, pady=10)
@@ -6747,7 +6805,7 @@ class OCRApp:
                  bg="#FF9800", fg="white", padx=15, pady=5).pack(side=tk.LEFT, padx=5)
         
         tk.Label(rules_window, text="选择要在哪些字符之间插入空格：", 
-                fg="gray", font=("Arial", 10)).pack(pady=5)
+                fg="gray", font=("Microsoft YaHei UI", 10, "bold")).pack(pady=5)
         
         # 规则选择框架
         rules_frame = tk.Frame(rules_window, padx=20, pady=10)
@@ -6762,11 +6820,11 @@ class OCRApp:
         custom_frame.pack(fill=tk.X, pady=10)
         
         tk.Label(custom_frame, text="在以下字符之间插入空格（用逗号分隔，成对出现）：", 
-                font=("Arial", 10)).pack(anchor=tk.W)
+                font=("Microsoft YaHei UI", 10, "bold")).pack(anchor=tk.W)
         
         self.custom_chars_var = tk.StringVar()
         custom_entry = tk.Entry(custom_frame, textvariable=self.custom_chars_var, 
-                               font=("Arial", 10), width=60)
+                               font=("Microsoft YaHei UI", 10, "bold"), width=60)
         custom_entry.pack(fill=tk.X, pady=5)
         
         # 添加更详细的说明
@@ -6776,7 +6834,7 @@ class OCRApp:
                         "• 支持分隔符：竖线(|)、逗号(,)、空格")
         
         tk.Label(custom_frame, text=examples_text, 
-                font=("Arial", 9), fg="gray", justify=tk.LEFT).pack(anchor=tk.W, pady=(5, 0))
+                font=("Microsoft YaHei UI", 9, "bold"), fg="gray", justify=tk.LEFT).pack(anchor=tk.W, pady=(5, 0))
         
         # 按钮框架
         btn_frame = tk.Frame(rules_window, pady=15)
@@ -6890,14 +6948,14 @@ class OCRApp:
             preview_window.geometry(f"700x500+{x}+{y}")
             
             tk.Label(preview_window, text="🔍 预览效果", 
-                    font=("Arial", 14, "bold")).pack(pady=10)
+                    font=("Microsoft YaHei UI", 14, "bold")).pack(pady=10)
             
             # 创建文本显示区域
             text_frame = tk.Frame(preview_window)
             text_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
             
             preview_text = scrolledtext.ScrolledText(text_frame, width=80, height=25, 
-                                                   font=("Microsoft YaHei", 10))
+                                                   font=("Microsoft YaHei UI", 10, "bold"))
             preview_text.pack(fill=tk.BOTH, expand=True)
             
             # 生成预览内容
@@ -6996,7 +7054,7 @@ class OCRApp:
             btn = tk.Button(parent, text=text, command=command, bg=bg, fg=fg,
                             activebackground=bg, activeforeground=fg,
                             relief=tk.FLAT, bd=0, cursor="hand2",
-                            font=("Microsoft YaHei", 9, "bold" if bold else "normal"),
+                            font=("Microsoft YaHei UI", 9 if bold else "normal", "bold"),
                             padx=padx, pady=pady)
             return btn
 
@@ -7031,11 +7089,11 @@ class OCRApp:
         header = tk.Frame(main, bg=colors["bg"])
         header.pack(fill=tk.X, padx=28, pady=(18, 10))
         tk.Label(header, text="⚙", bg=colors["bg"], fg=colors["blue"],
-                 font=("Microsoft YaHei", 24, "bold")).pack()
+                 font=("Microsoft YaHei UI", 24, "bold")).pack()
         tk.Label(header, text="空格和清理规则设置", bg=colors["bg"], fg=colors["text"],
-                 font=("Microsoft YaHei", 17, "bold")).pack(pady=(0, 6))
+                 font=("Microsoft YaHei UI", 17, "bold")).pack(pady=(0, 6))
         tk.Label(header, text="在这里统一管理加空格规则，以及需要从名称中去掉的文字或符号",
-                 bg=colors["bg"], fg=colors["muted"], font=("Microsoft YaHei", 9)).pack()
+                 bg=colors["bg"], fg=colors["muted"], font=("Microsoft YaHei UI", 9, "bold")).pack()
 
         content = tk.Frame(main, bg=colors["bg"])
         content.pack(fill=tk.BOTH, expand=True, padx=26, pady=(6, 12))
@@ -7056,7 +7114,7 @@ class OCRApp:
         space_title = tk.Frame(space_card, bg=colors["card"])
         space_title.grid(row=0, column=0, sticky="ew")
         tk.Label(space_title, text="▣  空格规则", bg=colors["card"], fg=colors["blue"],
-                 font=("Microsoft YaHei", self.current_font_size, "bold")).pack(side=tk.LEFT)
+                 font=("Microsoft YaHei UI", self.current_font_size, "bold")).pack(side=tk.LEFT)
         help_btn = make_button(space_title, "? 帮助", lambda: messagebox.showinfo(
             "空格规则帮助",
             "每行输入一个两个字的词，保存后会在两个字之间自动加空格。\n例如：一时 会处理成 一 时",
@@ -7064,12 +7122,12 @@ class OCRApp:
         help_btn.pack(side=tk.RIGHT)
 
         tk.Label(space_card, text="将以下文字按“每组两个字”加空格（每行一个，回车换行或粘贴多行）",
-                 bg=colors["card"], fg=colors["muted"], font=("Microsoft YaHei", 8)).grid(row=1, column=0, sticky="w", pady=(12, 8))
+                 bg=colors["card"], fg=colors["muted"], font=("Microsoft YaHei UI", 8, "bold")).grid(row=1, column=0, sticky="w", pady=(12, 8))
 
         example = tk.Frame(space_card, bg=colors["blue_soft"], highlightthickness=1, highlightbackground="#BFDBFE")
         example.grid(row=2, column=0, sticky="ew", pady=(0, 8))
         tk.Label(example, text="ⓘ  示例： 一时、二时、三时   →   一 时、二 时、三 时",
-                 bg=colors["blue_soft"], fg=colors["blue"], font=("Microsoft YaHei", 9)).pack(anchor=tk.W, padx=10, pady=6)
+                 bg=colors["blue_soft"], fg=colors["blue"], font=("Microsoft YaHei UI", 9, "bold")).pack(anchor=tk.W, padx=10, pady=6)
 
         editor = tk.Frame(space_card, bg="#D7E3F5", highlightthickness=1, highlightbackground="#BFDBFE")
         editor.grid(row=3, column=0, sticky="nsew")
@@ -7080,7 +7138,7 @@ class OCRApp:
         line_numbers.grid(row=0, column=0, sticky="ns")
         chars_text = tk.Text(editor, wrap=tk.NONE, bg="#FFFFFF", fg=colors["text"],
                              insertbackground=colors["blue"], relief=tk.FLAT, bd=0,
-                             padx=8, pady=8, font=("Microsoft YaHei", 10),
+                             padx=8, pady=8, font=("Microsoft YaHei UI", 10, "bold"),
                              yscrollcommand=sync_from_text)
         chars_text.grid(row=0, column=1, sticky="nsew")
         scrollbar = ttk.Scrollbar(editor, orient=tk.VERTICAL, command=sync_text_scroll)
@@ -7100,12 +7158,12 @@ class OCRApp:
         chars_text.bind("<MouseWheel>", lambda e: settings_window.after_idle(draw_line_numbers))
 
         tk.Label(space_card, text="💡 提示：每个词为2个字，按回车换行或粘贴多行",
-                 bg=colors["card"], fg=colors["blue"], font=("Microsoft YaHei", 8)).grid(row=4, column=0, sticky="w", pady=(9, 0))
+                 bg=colors["card"], fg=colors["blue"], font=("Microsoft YaHei UI", 8, "bold")).grid(row=4, column=0, sticky="w", pady=(9, 0))
 
         filter_title = tk.Frame(filter_card, bg=colors["card"])
         filter_title.grid(row=0, column=0, sticky="ew")
         tk.Label(filter_title, text="🗑  清理规则", bg=colors["card"], fg=colors["green"],
-                 font=("Microsoft YaHei", self.current_font_size, "bold")).pack(side=tk.LEFT)
+                 font=("Microsoft YaHei UI", self.current_font_size, "bold")).pack(side=tk.LEFT)
         filter_help_btn = make_button(filter_title, "? 帮助", lambda: messagebox.showinfo(
             "清理规则帮助",
             "匹配到列表里的文字或符号时，会从名称中删除。\n支持普通文字或正则表达式。",
@@ -7113,7 +7171,7 @@ class OCRApp:
         filter_help_btn.pack(side=tk.RIGHT)
 
         tk.Label(filter_card, text="匹配到以下内容时，将自动删除（支持普通文字或正则表达式）",
-                 bg=colors["card"], fg=colors["muted"], font=("Microsoft YaHei", 8)).grid(row=1, column=0, sticky="w", pady=(12, 8))
+                 bg=colors["card"], fg=colors["muted"], font=("Microsoft YaHei UI", 8, "bold")).grid(row=1, column=0, sticky="w", pady=(12, 8))
 
         input_row = tk.Frame(filter_card, bg=colors["card"])
         input_row.grid(row=2, column=0, sticky="ew", pady=(0, 12))
@@ -7123,7 +7181,7 @@ class OCRApp:
         entry = tk.Entry(input_row, textvariable=entry_var, bg="#FFFFFF", fg="#94A3B8",
                          insertbackground=colors["blue"], relief=tk.FLAT,
                          highlightthickness=1, highlightbackground=colors["border"],
-                         highlightcolor="#93C5FD", font=("Microsoft YaHei", 9))
+                         highlightcolor="#93C5FD", font=("Microsoft YaHei UI", 9, "bold"))
         entry.insert(0, placeholder)
         entry.grid(row=0, column=0, sticky="ew", ipady=7)
 
@@ -7159,7 +7217,7 @@ class OCRApp:
             header_row = tk.Frame(chips_frame, bg=colors["card"])
             header_row.grid(row=0, column=0, columnspan=4, sticky="ew", pady=(0, 10))
             tk.Label(header_row, text=f"当前规则（{len(local_filter_rules)}）", bg=colors["card"],
-                     fg=colors["text"], font=("Microsoft YaHei", 9, "bold")).pack(side=tk.LEFT)
+                     fg=colors["text"], font=("Microsoft YaHei UI", 9, "bold")).pack(side=tk.LEFT)
             if local_filter_rules:
                 clear_btn = make_button(header_row, "🗑 清空全部", clear_filter_rules,
                                         bg=colors["card"], fg=colors["blue"], padx=4, pady=0)
@@ -7167,7 +7225,7 @@ class OCRApp:
 
             if not local_filter_rules:
                 tk.Label(chips_frame, text="暂无清理规则", bg=colors["card"], fg="#94A3B8",
-                         font=("Microsoft YaHei", 10)).grid(row=1, column=0, sticky="w", pady=10)
+                         font=("Microsoft YaHei UI", 10, "bold")).grid(row=1, column=0, sticky="w", pady=10)
             else:
                 max_cols = 4
                 for idx, rule in enumerate(local_filter_rules):
@@ -7175,9 +7233,9 @@ class OCRApp:
                                     highlightthickness=1, highlightbackground=colors["green_border"])
                     chip.grid(row=1 + idx // max_cols, column=idx % max_cols, sticky="w", padx=(0, 8), pady=(0, 8))
                     tk.Label(chip, text=rule, bg=colors["green_soft"], fg="#14532D",
-                             font=("Microsoft YaHei", 9)).pack(side=tk.LEFT)
+                             font=("Microsoft YaHei UI", 9, "bold")).pack(side=tk.LEFT)
                     close = tk.Label(chip, text="  ×", bg=colors["green_soft"], fg="#5B8F72",
-                                     font=("Microsoft YaHei", 10, "bold"), cursor="hand2")
+                                     font=("Microsoft YaHei UI", 10, "bold"), cursor="hand2")
                     close.pack(side=tk.LEFT)
                     close.bind("<Button-1>", lambda e, i=idx: delete_filter_rule(i))
 
@@ -7217,15 +7275,15 @@ class OCRApp:
                          highlightthickness=1, highlightbackground="#C7DBF7")
         usage.pack(fill=tk.X, padx=26, pady=(0, 12))
         tk.Label(usage, text="💡", bg="#EAF2FF", fg=colors["blue"],
-                 font=("Microsoft YaHei", 16)).pack(side=tk.LEFT, padx=(0, 12))
+                 font=("Microsoft YaHei UI", 16, "bold")).pack(side=tk.LEFT, padx=(0, 12))
         usage_text = tk.Frame(usage, bg="#EAF2FF")
         usage_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
         tk.Label(usage_text, text="使用说明", bg="#EAF2FF", fg=colors["text"],
-                 font=("Microsoft YaHei", self.current_font_size, "bold")).pack(anchor=tk.W)
+                 font=("Microsoft YaHei UI", self.current_font_size, "bold")).pack(anchor=tk.W)
         tk.Label(usage_text, text="• 空格规则：将每组两个字之间自动插入空格（如“一时” → “一 时”）",
-                 bg="#EAF2FF", fg="#334155", font=("Microsoft YaHei", 8)).pack(anchor=tk.W, pady=(4, 0))
+                 bg="#EAF2FF", fg="#334155", font=("Microsoft YaHei UI", 8, "bold")).pack(anchor=tk.W, pady=(4, 0))
         tk.Label(usage_text, text="• 清理规则：匹配到列表中的内容时，将从名称中删除",
-                 bg="#EAF2FF", fg="#334155", font=("Microsoft YaHei", 8)).pack(anchor=tk.W)
+                 bg="#EAF2FF", fg="#334155", font=("Microsoft YaHei UI", 8, "bold")).pack(anchor=tk.W)
 
         def close_window():
             settings_window.destroy()
@@ -7283,7 +7341,7 @@ class OCRApp:
         edit_window.geometry(f"500x400+{x}+{y}")
         
         tk.Label(edit_window, text=f"编辑预设：{preset_name}", 
-                font=("Arial", 12, "bold")).pack(pady=15)
+                font=("Microsoft YaHei UI", 12, "bold")).pack(pady=15)
         
         # 预设名称
         name_frame = tk.Frame(edit_window, padx=20)
@@ -7291,7 +7349,7 @@ class OCRApp:
         
         tk.Label(name_frame, text="预设名称：").pack(anchor=tk.W)
         name_var = tk.StringVar(value=preset_name)
-        name_entry = tk.Entry(name_frame, textvariable=name_var, font=("Arial", 11), width=40)
+        name_entry = tk.Entry(name_frame, textvariable=name_var, font=("Microsoft YaHei UI", 11, "bold"), width=40)
         name_entry.pack(fill=tk.X, pady=5)
         
         # 描述
@@ -7300,7 +7358,7 @@ class OCRApp:
         
         tk.Label(desc_frame, text="描述：").pack(anchor=tk.W)
         desc_var = tk.StringVar(value=preset.get('description', ''))
-        desc_entry = tk.Entry(desc_frame, textvariable=desc_var, font=("Arial", 11), width=40)
+        desc_entry = tk.Entry(desc_frame, textvariable=desc_var, font=("Microsoft YaHei UI", 11, "bold"), width=40)
         desc_entry.pack(fill=tk.X, pady=5)
         
         # 自定义字符
@@ -7309,11 +7367,11 @@ class OCRApp:
         
         tk.Label(custom_frame, text="自定义字符（每组两个字，用|或,分隔）：").pack(anchor=tk.W)
         custom_var = tk.StringVar(value=preset.get('custom_chars', ''))
-        custom_entry = tk.Entry(custom_frame, textvariable=custom_var, font=("Arial", 11), width=40)
+        custom_entry = tk.Entry(custom_frame, textvariable=custom_var, font=("Microsoft YaHei UI", 11, "bold"), width=40)
         custom_entry.pack(fill=tk.X, pady=5)
         
         tk.Label(custom_frame, text="例：一时|二时|三时 表示在“一时”变成“一 时”", 
-                font=("Arial", 9), fg="gray").pack(anchor=tk.W)
+                font=("Microsoft YaHei UI", 9, "bold"), fg="gray").pack(anchor=tk.W)
         
         # 按钮
         btn_frame = tk.Frame(edit_window, pady=15)
@@ -7699,7 +7757,7 @@ class OCRApp:
             
             # 标题
             tk.Label(details_window, text="📊 数据文件详细信息", 
-                    font=("Microsoft YaHei", 14, "bold"), fg="#333").pack(pady=(20, 15))
+                    font=("Microsoft YaHei UI", 14, "bold"), fg="#333").pack(pady=(20, 15))
             
             # 获取详细信息
             file_info = self.check_data_file_size()
@@ -7713,7 +7771,7 @@ class OCRApp:
             
             # 创建信息文本
             info_text = scrolledtext.ScrolledText(info_frame, height=15, width=60, 
-                                                font=("Microsoft YaHei", 10), wrap=tk.WORD)
+                                                font=("Microsoft YaHei UI", 10, "bold"), wrap=tk.WORD)
             info_text.pack(fill=tk.BOTH, expand=True)
             
             # 构建详细信息
@@ -7745,20 +7803,20 @@ class OCRApp:
             btn_frame.pack(fill=tk.X, padx=20, pady=20)
             
             tk.Button(btn_frame, text="📜 管理导出历史", command=self.show_export_history,
-                     bg="#4CAF50", fg="white", font=("Microsoft YaHei", 10),
+                     bg="#4CAF50", fg="white", font=("Microsoft YaHei UI", 10, "bold"),
                      padx=15, pady=8).pack(side=tk.LEFT, padx=5)
             
             tk.Button(btn_frame, text="⚙️ 数量设置", command=self.show_export_limit_settings,
-                     bg="#FF9800", fg="white", font=("Microsoft YaHei", 10),
+                     bg="#FF9800", fg="white", font=("Microsoft YaHei UI", 10, "bold"),
                      padx=15, pady=8).pack(side=tk.LEFT, padx=5)
             
             tk.Button(btn_frame, text="🔄 刷新信息", 
                      command=lambda: [details_window.destroy(), self.show_data_file_details()],
-                     bg="#2196F3", fg="white", font=("Microsoft YaHei", 10),
+                     bg="#2196F3", fg="white", font=("Microsoft YaHei UI", 10, "bold"),
                      padx=15, pady=8).pack(side=tk.LEFT, padx=5)
             
             tk.Button(btn_frame, text="❌ 关闭", command=details_window.destroy,
-                     bg="#757575", fg="white", font=("Microsoft YaHei", 10),
+                     bg="#757575", fg="white", font=("Microsoft YaHei UI", 10, "bold"),
                      padx=15, pady=8).pack(side=tk.RIGHT, padx=5)
             
         except Exception as e:
@@ -7801,7 +7859,7 @@ class OCRApp:
             
             # 标题
             tk.Label(settings_window, text="📊 导出历史记录数量设置", 
-                    font=("Microsoft YaHei", 14, "bold"), fg="#333").pack(pady=(20, 15))
+                    font=("Microsoft YaHei UI", 14, "bold"), fg="#333").pack(pady=(20, 15))
             
             # 当前状态
             current_count = len(self.store.get('export_history', []))
@@ -7812,7 +7870,7 @@ class OCRApp:
             
             status_text = f"📈 当前状态：已保存 {current_count} 个记录，限制 {current_limit} 个"
             tk.Label(status_frame, text=status_text, bg="#f0f0f0", 
-                    font=("Microsoft YaHei", 11)).pack(pady=10)
+                    font=("Microsoft YaHei UI", 11, "bold")).pack(pady=10)
             
             # 设置区域
             settings_frame = tk.LabelFrame(settings_window, text="设置选项", padx=20, pady=15)
@@ -7823,20 +7881,20 @@ class OCRApp:
             limit_frame.pack(fill=tk.X, pady=5)
             
             tk.Label(limit_frame, text="历史记录数量限制：", 
-                    font=("Microsoft YaHei", 10)).pack(side=tk.LEFT)
+                    font=("Microsoft YaHei UI", 10, "bold")).pack(side=tk.LEFT)
             
             limit_var = tk.StringVar(value=str(current_limit))
             limit_entry = tk.Entry(limit_frame, textvariable=limit_var, 
-                                  font=("Arial", 11), width=10, justify=tk.CENTER)
+                                  font=("Microsoft YaHei UI", 11, "bold"), width=10, justify=tk.CENTER)
             limit_entry.pack(side=tk.LEFT, padx=10)
             
-            tk.Label(limit_frame, text="个", font=("Microsoft YaHei", 10)).pack(side=tk.LEFT)
+            tk.Label(limit_frame, text="个", font=("Microsoft YaHei UI", 10, "bold")).pack(side=tk.LEFT)
             
             # 预设按钮
             preset_frame = tk.Frame(settings_frame)
             preset_frame.pack(fill=tk.X, pady=10)
             
-            tk.Label(preset_frame, text="快速设置：", font=("Microsoft YaHei", 10)).pack(anchor=tk.W)
+            tk.Label(preset_frame, text="快速设置：", font=("Microsoft YaHei UI", 10, "bold")).pack(anchor=tk.W)
             
             preset_btn_frame = tk.Frame(preset_frame)
             preset_btn_frame.pack(fill=tk.X, pady=5)
@@ -7845,7 +7903,7 @@ class OCRApp:
             for preset in presets:
                 tk.Button(preset_btn_frame, text=str(preset), 
                          command=lambda p=preset: limit_var.set(str(p)),
-                         width=8, font=("Arial", 9)).pack(side=tk.LEFT, padx=2)
+                         width=8, font=("Microsoft YaHei UI", 9, "bold")).pack(side=tk.LEFT, padx=2)
             
             # 提示信息
             hint_text = ("💡 提示：\n"
@@ -7853,7 +7911,7 @@ class OCRApp:
                         "• 记录过多可能影响软件启动速度\n"
                         "• 设置为 0 表示不限制数量（不推荐）")
             
-            tk.Label(settings_frame, text=hint_text, font=("Arial", 9), 
+            tk.Label(settings_frame, text=hint_text, font=("Microsoft YaHei UI", 9, "bold"), 
                     fg="gray", justify=tk.LEFT).pack(anchor=tk.W, pady=10)
             
             # 按钮区域
@@ -7904,15 +7962,15 @@ class OCRApp:
                 settings_window.destroy()
             
             tk.Button(btn_frame, text="保存设置", command=save_settings,
-                     bg="#4CAF50", fg="white", font=("Microsoft YaHei", 10, "bold"),
+                     bg="#4CAF50", fg="white", font=("Microsoft YaHei UI", 10, "bold"),
                      padx=20, pady=8).pack(side=tk.RIGHT, padx=5)
             
             tk.Button(btn_frame, text="清空历史", command=clear_history,
-                     bg="#f44336", fg="white", font=("Microsoft YaHei", 10),
+                     bg="#f44336", fg="white", font=("Microsoft YaHei UI", 10, "bold"),
                      padx=20, pady=8).pack(side=tk.RIGHT, padx=5)
             
             tk.Button(btn_frame, text="取消", command=settings_window.destroy,
-                     bg="#757575", fg="white", font=("Microsoft YaHei", 10),
+                     bg="#757575", fg="white", font=("Microsoft YaHei UI", 10, "bold"),
                      padx=20, pady=8).pack(side=tk.RIGHT, padx=5)
             
             # 焦点设置
@@ -7947,24 +8005,24 @@ class OCRApp:
             
             # 标题
             tk.Label(password_dialog, text="🔐 " + title, 
-                    font=("Microsoft YaHei", 14, "bold"), fg="#333").pack(pady=(20, 15))
+                    font=("Microsoft YaHei UI", 14, "bold"), fg="#333").pack(pady=(20, 15))
             
             # 消息
             tk.Label(password_dialog, text=message, wraplength=370,
-                    justify=tk.CENTER, font=("Microsoft YaHei", 11)).pack(pady=10)
+                    justify=tk.CENTER, font=("Microsoft YaHei UI", 11, "bold")).pack(pady=10)
             
             # 密码输入框
             password_frame = tk.Frame(password_dialog)
             password_frame.pack(pady=15)
             
-            tk.Label(password_frame, text="密码：", font=("Microsoft YaHei", 10)).pack(side=tk.LEFT)
+            tk.Label(password_frame, text="密码：", font=("Microsoft YaHei UI", 10, "bold")).pack(side=tk.LEFT)
             password_var = tk.StringVar()
             password_entry = tk.Entry(password_frame, textvariable=password_var, 
-                                    show="*", font=("Arial", 12), width=15)
+                                    show="*", font=("Microsoft YaHei UI", 12, "bold"), width=15)
             password_entry.pack(side=tk.LEFT, padx=10)
             
             # 错误提示
-            error_label = tk.Label(password_dialog, text="", fg="red", font=("Arial", 9))
+            error_label = tk.Label(password_dialog, text="", fg="red", font=("Microsoft YaHei UI", 9, "bold"))
             error_label.pack(pady=5)
             
             # 按钮框架
@@ -7990,11 +8048,11 @@ class OCRApp:
             password_dialog.protocol("WM_DELETE_WINDOW", cancel)
             
             tk.Button(btn_frame, text="确定", command=verify_password,
-                     bg="#4CAF50", fg="white", font=("Microsoft YaHei", 10, "bold"),
+                     bg="#4CAF50", fg="white", font=("Microsoft YaHei UI", 10, "bold"),
                      padx=20, pady=8).pack(side=tk.LEFT, padx=10)
             
             tk.Button(btn_frame, text="取消", command=cancel,
-                     bg="#757575", fg="white", font=("Microsoft YaHei", 10),
+                     bg="#757575", fg="white", font=("Microsoft YaHei UI", 10, "bold"),
                      padx=20, pady=8).pack(side=tk.LEFT, padx=10)
             
             # 绑定回车键
@@ -8203,7 +8261,7 @@ class OCRApp:
                 title_text = f"📜 导出历史记录 ({len(export_history)}/{current_limit})"
                 
             tk.Label(history_window, text=title_text, 
-                    font=("Microsoft YaHei", 14, "bold"), fg="#333").pack(pady=(20, 10))
+                    font=("Microsoft YaHei UI", 14, "bold"), fg="#333").pack(pady=(20, 10))
             
             # 创建框架
             main_frame = tk.Frame(history_window)
@@ -8213,13 +8271,13 @@ class OCRApp:
             left_frame = tk.Frame(main_frame)
             left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             
-            tk.Label(left_frame, text="历史记录列表：", font=("Microsoft YaHei", 11, "bold")).pack(anchor=tk.W)
+            tk.Label(left_frame, text="历史记录列表：", font=("Microsoft YaHei UI", 11, "bold")).pack(anchor=tk.W)
             
             # 创建列表框
             list_frame = tk.Frame(left_frame)
             list_frame.pack(fill=tk.BOTH, expand=True, pady=5)
             
-            history_listbox = tk.Listbox(list_frame, font=("Microsoft YaHei", 9))
+            history_listbox = tk.Listbox(list_frame, font=("Microsoft YaHei UI", 9, "bold"))
             history_scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=history_listbox.yview)
             history_listbox.configure(yscrollcommand=history_scrollbar.set)
             
@@ -8231,11 +8289,11 @@ class OCRApp:
             right_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(20, 0))
             right_frame.pack_propagate(False)
             
-            tk.Label(right_frame, text="详细信息：", font=("Microsoft YaHei", 11, "bold")).pack(anchor=tk.W)
+            tk.Label(right_frame, text="详细信息：", font=("Microsoft YaHei UI", 11, "bold")).pack(anchor=tk.W)
             
             # 详细信息显示区域
             info_text = scrolledtext.ScrolledText(right_frame, height=15, width=35, 
-                                                font=("Microsoft YaHei", 9), wrap=tk.WORD)
+                                                font=("Microsoft YaHei UI", 9, "bold"), wrap=tk.WORD)
             info_text.pack(fill=tk.BOTH, expand=True, pady=5)
             
             # 操作按钮
@@ -8272,17 +8330,17 @@ class OCRApp:
                     messagebox.showinfo("成功", "已清空所有导出记录")
             
             tk.Button(btn_frame, text="查看内容", command=view_content, 
-                     bg="#4CAF50", fg="white", font=("Microsoft YaHei", 9)).pack(fill=tk.X, pady=2)
+                     bg="#4CAF50", fg="white", font=("Microsoft YaHei UI", 9, "bold")).pack(fill=tk.X, pady=2)
             tk.Button(btn_frame, text="删除记录", command=delete_record, 
-                     bg="#f44336", fg="white", font=("Microsoft YaHei", 9)).pack(fill=tk.X, pady=2)
+                     bg="#f44336", fg="white", font=("Microsoft YaHei UI", 9, "bold")).pack(fill=tk.X, pady=2)
             tk.Button(btn_frame, text="打包文件", command=self.export_all_history,
-                     bg="#2196F3", fg="white", font=("Microsoft YaHei", 9)).pack(fill=tk.X, pady=2)
+                     bg="#2196F3", fg="white", font=("Microsoft YaHei UI", 9, "bold")).pack(fill=tk.X, pady=2)
             tk.Button(btn_frame, text="数量设置", command=self.show_export_limit_settings, 
-                     bg="#FF9800", fg="white", font=("Microsoft YaHei", 9)).pack(fill=tk.X, pady=2)
+                     bg="#FF9800", fg="white", font=("Microsoft YaHei UI", 9, "bold")).pack(fill=tk.X, pady=2)
             tk.Button(btn_frame, text="文件信息", command=self.show_data_file_details, 
-                     bg="#9C27B0", fg="white", font=("Microsoft YaHei", 9)).pack(fill=tk.X, pady=2)
+                     bg="#9C27B0", fg="white", font=("Microsoft YaHei UI", 9, "bold")).pack(fill=tk.X, pady=2)
             tk.Button(btn_frame, text="清空所有", command=self.clear_all_with_password, 
-                     bg="#757575", fg="white", font=("Microsoft YaHei", 9)).pack(fill=tk.X, pady=2)
+                     bg="#757575", fg="white", font=("Microsoft YaHei UI", 9, "bold")).pack(fill=tk.X, pady=2)
             
             def refresh_list():
                 """刷新列表"""
@@ -8351,7 +8409,7 @@ class OCRApp:
             timestamp = datetime.fromisoformat(record['timestamp']).strftime("%Y-%m-%d %H:%M:%S")
             info_text = f"📄 {record['file_name']} | 🕒 {timestamp} | 📊 {record['line_count']}行 {record['char_count']}字符"
             tk.Label(info_frame, text=info_text, bg="#f0f0f0", 
-                    font=("Microsoft YaHei", 10)).pack(pady=5)
+                    font=("Microsoft YaHei UI", 10, "bold")).pack(pady=5)
             
             # 工具栏
             toolbar = tk.Frame(content_window, bg="#e0e0e0")
@@ -8394,7 +8452,7 @@ class OCRApp:
             
             # 内容显示区域
             content_text = scrolledtext.ScrolledText(content_window, wrap=tk.WORD, 
-                                                   font=("Microsoft YaHei", 11))
+                                                   font=("Microsoft YaHei UI", 11, "bold"))
             content_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
             
             # 插入内容
@@ -8654,9 +8712,9 @@ class OCRApp:
             win.geometry(f'{w}x{h}+{(sw-w)//2}+{(sh-h)//2}')
 
             tk.Label(win, text='检测到 2 张图片', bg='white', fg='#111827',
-                     font=('Microsoft YaHei', 12, 'bold')).pack(pady=(20, 6))
+                     font=('Microsoft YaHei UI', 12, 'bold')).pack(pady=(20, 6))
             tk.Label(win, text='是否先拼接再识别？', bg='white', fg='#6B7280',
-                     font=('Microsoft YaHei', 9)).pack(pady=(0, 16))
+                     font=('Microsoft YaHei UI', 9, 'bold')).pack(pady=(0, 16))
 
             btn_row = tk.Frame(win, bg='white')
             btn_row.pack()
@@ -8672,11 +8730,11 @@ class OCRApp:
 
             tk.Button(btn_row, text='拼接识别', command=do_merge,
                       bg='#1A6FD4', fg='white', relief='flat',
-                      font=('Microsoft YaHei', 10, 'bold'),
+                      font=('Microsoft YaHei UI', 10, 'bold'),
                       padx=20, pady=7, cursor='hand2').pack(side=tk.LEFT, padx=(0, 8))
             tk.Button(btn_row, text='分别识别', command=do_batch,
                       bg='#F3F4F6', fg='#374151', relief='flat',
-                      font=('Microsoft YaHei', 10),
+                      font=('Microsoft YaHei UI', 10, 'bold'),
                       padx=20, pady=7, cursor='hand2').pack(side=tk.LEFT)
 
             win.bind('<Return>', lambda e: do_merge())
@@ -8700,9 +8758,9 @@ class OCRApp:
         option_window.preview_photos = []
 
         tk.Label(option_window, text=f"检测到 {count} 张图片",
-                 font=("Microsoft YaHei", 14, "bold")).pack(pady=(16, 6))
+                 font=("Microsoft YaHei UI", 14, "bold")).pack(pady=(16, 6))
         tk.Label(option_window, text=recommend_reason,
-                 fg="#555555", font=("Microsoft YaHei", 10), wraplength=610).pack(pady=(0, 10))
+                 fg="#555555", font=("Microsoft YaHei UI", 10, "bold"), wraplength=610).pack(pady=(0, 10))
 
         preview_frame = tk.Frame(option_window, bg="#F7FAFC")
         preview_frame.pack(fill=tk.X, padx=20, pady=4)
@@ -8738,12 +8796,12 @@ class OCRApp:
                 detail += f"\n{info['width']}x{info['height']}  {info['size_text']}\n可用：{modes_text}"
 
             tk.Label(card, text=detail, bg="white", fg="#1F2937",
-                     justify=tk.LEFT, wraplength=175, font=("Microsoft YaHei", 8)).pack(
+                     justify=tk.LEFT, wraplength=175, font=("Microsoft YaHei UI", 8, "bold")).pack(
                          padx=6, pady=(0, 8), anchor=tk.W)
 
         if count > preview_count:
             tk.Label(option_window, text=f"还有 {count - preview_count} 张图片未显示预览，将按拖入顺序处理。",
-                     fg="#666666", font=("Microsoft YaHei", 9)).pack(pady=(2, 6))
+                     fg="#666666", font=("Microsoft YaHei UI", 9, "bold")).pack(pady=(2, 6))
 
         def close_and_run(action):
             option_window.destroy()
@@ -8766,31 +8824,31 @@ class OCRApp:
 
         tk.Button(button_frame, text=recommend_text, command=lambda: close_and_run(recommend_action),
                   bg="#1976D2", fg="white", padx=24, pady=9,
-                  font=("Microsoft YaHei", self.current_font_size, "bold")).pack(side=tk.LEFT, padx=6)
+                  font=("Microsoft YaHei UI", self.current_font_size, "bold")).pack(side=tk.LEFT, padx=6)
 
         if count == 2 and recommend_action != "merge":
             tk.Button(button_frame, text="拼接图片", command=lambda: close_and_run("merge"),
                       bg="#FF9800", fg="white", padx=18, pady=8,
-                      font=("Microsoft YaHei", 10)).pack(side=tk.LEFT, padx=6)
+                      font=("Microsoft YaHei UI", 10, "bold")).pack(side=tk.LEFT, padx=6)
 
         tk.Button(button_frame, text="高精度识别", command=lambda: close_and_run("accurate"),
                   bg="#2196F3", fg="white", padx=18, pady=8,
-                  font=("Microsoft YaHei", 10)).pack(side=tk.LEFT, padx=6)
+                  font=("Microsoft YaHei UI", 10, "bold")).pack(side=tk.LEFT, padx=6)
         tk.Button(button_frame, text="通用识别", command=lambda: close_and_run("general"),
                   bg="#9C27B0", fg="white", padx=18, pady=8,
-                  font=("Microsoft YaHei", 10)).pack(side=tk.LEFT, padx=6)
+                  font=("Microsoft YaHei UI", 10, "bold")).pack(side=tk.LEFT, padx=6)
         tk.Button(button_frame, text="快速识别", command=lambda: close_and_run("basic"),
                   bg="#00BCD4", fg="white", padx=18, pady=8,
-                  font=("Microsoft YaHei", 10)).pack(side=tk.LEFT, padx=6)
+                  font=("Microsoft YaHei UI", 10, "bold")).pack(side=tk.LEFT, padx=6)
 
         bottom_frame = tk.Frame(option_window)
         bottom_frame.pack(pady=(4, 12))
         tk.Button(bottom_frame, text="裁剪识别", command=lambda: close_and_run("crop"),
                   bg="#4CAF50", fg="white", padx=18, pady=8,
-                  font=("Microsoft YaHei", 10)).pack(side=tk.LEFT, padx=6)
+                  font=("Microsoft YaHei UI", 10, "bold")).pack(side=tk.LEFT, padx=6)
         tk.Button(bottom_frame, text="取消", command=option_window.destroy,
                   bg="#757575", fg="white", padx=22, pady=8,
-                  font=("Microsoft YaHei", 10)).pack(side=tk.LEFT, padx=6)
+                  font=("Microsoft YaHei UI", 10, "bold")).pack(side=tk.LEFT, padx=6)
 
     def _show_single_image_drop_options(self, image_file):
         """显示单张图片拖入操作选项。"""
@@ -8801,65 +8859,65 @@ class OCRApp:
         option_window = self.create_popup_window(self.root, "选择操作", "multi_image_options", 500, 480)
         
         tk.Label(option_window, text="🖼️ 检测到 2 张图片", 
-                font=("Arial", 14, "bold")).pack(pady=18)
+                font=("Microsoft YaHei UI", 14, "bold")).pack(pady=18)
         
         file_preview = "\n".join([f"{i + 1}. {os.path.basename(path)}" for i, path in enumerate(image_files)])
         tk.Label(option_window, text=file_preview, 
-                fg="blue", font=("Arial", 10), justify=tk.LEFT, wraplength=420).pack(pady=5)
+                fg="blue", font=("Microsoft YaHei UI", 10, "bold"), justify=tk.LEFT, wraplength=420).pack(pady=5)
         
         tk.Label(option_window, text="请选择操作方式：", 
-                font=("Arial", 10)).pack(pady=12)
+                font=("Microsoft YaHei UI", 10, "bold")).pack(pady=12)
         
         # 选项1：拼接图片
         option1_frame = tk.Frame(option_window, relief=tk.RIDGE, borderwidth=2, bg="#FFF3E0")
         option1_frame.pack(pady=8, padx=30, fill=tk.X)
         
         tk.Label(option1_frame, text="1️⃣ 拼接图片", 
-                font=("Arial", 12, "bold"), bg="#FFF3E0").pack(pady=8)
+                font=("Microsoft YaHei UI", 12, "bold"), bg="#FFF3E0").pack(pady=8)
         
         tk.Label(option1_frame, text="将两张图片横向拼接成一张，可在预览中切换方向", 
-                fg="gray", font=("Arial", 9), bg="#FFF3E0").pack(pady=5)
+                fg="gray", font=("Microsoft YaHei UI", 9, "bold"), bg="#FFF3E0").pack(pady=5)
         
         def merge_images_action():
             option_window.destroy()
             self._merge_images_from_drag(image_files)
         
         tk.Button(option1_frame, text="拼接图片", command=merge_images_action,
-                 bg="#FF9800", fg="white", padx=20, pady=6, font=("Arial", 10)).pack(pady=8)
+                 bg="#FF9800", fg="white", padx=20, pady=6, font=("Microsoft YaHei UI", 10, "bold")).pack(pady=8)
         
         # 选项2：批量识别
         option1_frame = tk.Frame(option_window, relief=tk.RIDGE, borderwidth=2, bg="#E3F2FD")
         option1_frame.pack(pady=8, padx=30, fill=tk.X)
         
         tk.Label(option1_frame, text="2️⃣ 批量识别", 
-                font=("Arial", 12, "bold"), bg="#E3F2FD").pack(pady=8)
+                font=("Microsoft YaHei UI", 12, "bold"), bg="#E3F2FD").pack(pady=8)
         
         tk.Label(option1_frame, text="按拖入顺序分别识别两张图片", 
-                fg="gray", font=("Arial", 9), bg="#E3F2FD").pack(pady=5)
+                fg="gray", font=("Microsoft YaHei UI", 9, "bold"), bg="#E3F2FD").pack(pady=5)
         
         def batch_recognize():
             option_window.destroy()
             self._start_high_accuracy_recognition(image_files)
         
         tk.Button(option1_frame, text="批量识别", command=batch_recognize,
-                 bg="#2196F3", fg="white", padx=20, pady=6, font=("Arial", 10)).pack(pady=8)
+                 bg="#2196F3", fg="white", padx=20, pady=6, font=("Microsoft YaHei UI", 10, "bold")).pack(pady=8)
 
         # 选项3：裁剪识别
         option3_frame = tk.Frame(option_window, relief=tk.RIDGE, borderwidth=2, bg="#E8F5E9")
         option3_frame.pack(pady=8, padx=30, fill=tk.X)
 
         tk.Label(option3_frame, text="3️⃣ 裁剪识别",
-                font=("Arial", 12, "bold"), bg="#E8F5E9").pack(pady=8)
+                font=("Microsoft YaHei UI", 12, "bold"), bg="#E8F5E9").pack(pady=8)
 
         tk.Label(option3_frame, text="在裁剪窗口中框选区域后进行识别",
-                fg="gray", font=("Arial", 9), bg="#E8F5E9").pack(pady=5)
+                fg="gray", font=("Microsoft YaHei UI", 9, "bold"), bg="#E8F5E9").pack(pady=5)
 
         def crop_recognize():
             option_window.destroy()
             self._open_crop_window(image_files)
 
         tk.Button(option3_frame, text="裁剪识别", command=crop_recognize,
-                 bg="#4CAF50", fg="white", padx=20, pady=6, font=("Arial", 10)).pack(pady=8)
+                 bg="#4CAF50", fg="white", padx=20, pady=6, font=("Microsoft YaHei UI", 10, "bold")).pack(pady=8)
 
         # 取消按钮
         tk.Button(option_window, text="取消", command=option_window.destroy,
@@ -8904,39 +8962,39 @@ class OCRApp:
         header = tk.Frame(page, bg='white')
         header.pack(fill=tk.X, padx=24, pady=(18, 4))
         tk.Label(header, text='📐 拼接预览', bg='white', fg='#111827',
-                 font=('Microsoft YaHei', 14, 'bold')).pack(side=tk.LEFT)
+                 font=('Microsoft YaHei UI', 14, 'bold')).pack(side=tk.LEFT)
 
         info = tk.Label(page,
                         text=f"{item_label}: {item_count}  |  尺寸: {total_width}x{max_height}",
-                        bg='white', fg='#6B7280', font=('Microsoft YaHei', 9))
+                        bg='white', fg='#6B7280', font=('Microsoft YaHei UI', 9, 'bold'))
         info.pack()
 
         order_label = tk.Label(page, fg='#E65100', bg='white',
-                               font=('Microsoft YaHei', 9))
+                               font=('Microsoft YaHei UI', 9, 'bold'))
         order_label.pack(pady=(4, 0))
 
         # ── 保存路径设置 ──
         path_row = tk.Frame(page, bg='white')
         path_row.pack(pady=(8, 0))
         tk.Label(path_row, text='📁 保存目录：', bg='white', fg='#374151',
-                 font=('Microsoft YaHei', 9)).pack(side=tk.LEFT)
+                 font=('Microsoft YaHei UI', 9, 'bold')).pack(side=tk.LEFT)
         path_text = self.merge_save_path if self.merge_save_path else '未设置（点击右侧按钮设置）'
         path_display = tk.Label(path_row, text=path_text, bg='white',
                                 fg='#2563EB' if self.merge_save_path else '#9CA3AF',
-                                font=('Microsoft YaHei', 8), anchor='w', width=38)
+                                font=('Microsoft YaHei UI', 8, 'bold'), anchor='w', width=38)
         path_display.pack(side=tk.LEFT)
         tk.Button(path_row, text='设置', command=lambda: self._set_merge_save_path(path_display),
-                  bg='#E5E7EB', relief='flat', font=('Microsoft YaHei', 8),
+                  bg='#E5E7EB', relief='flat', font=('Microsoft YaHei UI', 8, 'bold'),
                   padx=8, cursor='hand2').pack(side=tk.LEFT, padx=(6, 2))
         tk.Button(path_row, text='✕', command=lambda: self._clear_merge_save_path(path_display),
-                  bg='#E5E7EB', fg='#EF4444', relief='flat', font=('Microsoft YaHei', 8),
+                  bg='#E5E7EB', fg='#EF4444', relief='flat', font=('Microsoft YaHei UI', 8, 'bold'),
                   padx=6, cursor='hand2').pack(side=tk.LEFT)
 
         # ── 识别模式选择（与侧边栏同步） ──
         mode_row = tk.Frame(page, bg='white')
         mode_row.pack(pady=(6, 0))
         tk.Label(mode_row, text='识别模式：', bg='white', fg='#374151',
-                 font=('Microsoft YaHei', 9)).pack(side=tk.LEFT)
+                 font=('Microsoft YaHei UI', 9, 'bold')).pack(side=tk.LEFT)
         # 从该预览类型的记忆模式读取，无记忆时回退到侧边栏当前模式
         current_mode = self.preview_ocr_defaults.get(preview_type,
             self._selected_ocr_mode.get() if hasattr(self, '_selected_ocr_mode') else 'accurate')
@@ -8948,7 +9006,7 @@ class OCRApp:
                           bg='white', fg='#9CA3AF' if not key else '#374151',
                           relief='flat',
                           highlightthickness=1, highlightbackground='#E5E7EB',
-                          font=('Microsoft YaHei', 8),
+                          font=('Microsoft YaHei UI', 8, 'bold'),
                           padx=8, pady=4, cursor='hand2' if key else 'arrow',
                           state=tk.NORMAL if key else tk.DISABLED)
             b.pack(side=tk.LEFT, padx=(0, 4))
@@ -9049,14 +9107,14 @@ class OCRApp:
         page.bind('<Configure>', on_resize)
 
         switch_btn = tk.Button(btn_frame, text='切换为正向拼接', command=switch_direction,
-                               bg='#FF9800', fg='white', font=('Microsoft YaHei', 10),
+                               bg='#FF9800', fg='white', font=('Microsoft YaHei UI', 10, 'bold'),
                                padx=18, pady=8)
         switch_btn.pack(side=tk.LEFT, padx=6)
         tk.Button(btn_frame, text='导入识别', command=lambda: choose('import'),
-                  bg='#4CAF50', fg='white', font=('Microsoft YaHei', 10),
+                  bg='#4CAF50', fg='white', font=('Microsoft YaHei UI', 10, 'bold'),
                   padx=18, pady=8).pack(side=tk.LEFT, padx=6)
         tk.Button(btn_frame, text='取消', command=lambda: choose('cancel'),
-                  bg='#757575', fg='white', font=('Microsoft YaHei', 10),
+                  bg='#757575', fg='white', font=('Microsoft YaHei UI', 10, 'bold'),
                   padx=18, pady=8).pack(side=tk.LEFT, padx=6)
 
         self._nav_to('拼接预览')
@@ -9358,7 +9416,7 @@ class OCRApp:
         
         # 组标题
         title_label = tk.Label(group_frame, text=title, bg="#f0f0f0", fg="#333", 
-                              font=("Arial", 8), anchor=tk.CENTER)
+                              font=("Microsoft YaHei UI", 8, "bold"), anchor=tk.CENTER)
         title_label.pack(side=tk.BOTTOM, fill=tk.X)
         
         # 右侧分隔线
@@ -9372,13 +9430,13 @@ class OCRApp:
         if large:
             # 大按钮（单个）
             btn = tk.Button(parent, text=text, command=command, bg=color, fg="white",
-                          font=("Arial", 9), width=10, height=3, relief=tk.RAISED, bd=1,
+                          font=("Microsoft YaHei UI", 9, "bold"), width=10, height=3, relief=tk.RAISED, bd=1,
                           cursor="hand2", state=state)
             btn.pack(side=tk.LEFT, padx=3, pady=2)
         else:
             # 小按钮（多个）
             btn = tk.Button(parent, text=text, command=command, bg=color, fg="white",
-                          font=("Arial", 8), width=8, height=3, relief=tk.RAISED, bd=1,
+                          font=("Microsoft YaHei UI", 8, "bold"), width=8, height=3, relief=tk.RAISED, bd=1,
                           cursor="hand2", state=state)
             btn.pack(side=tk.LEFT, padx=2, pady=2)
         
@@ -9408,19 +9466,19 @@ class OCRApp:
         password_window = self.create_popup_window(self.root, "解锁尺寸限制", "unlock_password", 500, 350)
         
         tk.Label(password_window, text="🔓 解锁尺寸限制", 
-                font=("Arial", 14, "bold")).pack(pady=20)
+                font=("Microsoft YaHei UI", 14, "bold")).pack(pady=20)
         
         tk.Label(password_window, text="解锁后可以：", 
-                fg="gray", font=("Arial", 10)).pack(pady=5)
+                fg="gray", font=("Microsoft YaHei UI", 10, "bold")).pack(pady=5)
         
         tk.Label(password_window, text="1️⃣ 解除所有限制（任意尺寸使用高精度）", 
-                fg="blue", font=("Arial", 9)).pack(pady=2)
+                fg="blue", font=("Microsoft YaHei UI", 9, "bold")).pack(pady=2)
         
         tk.Label(password_window, text="2️⃣ 修改尺寸范围（自定义限制）", 
-                fg="blue", font=("Arial", 9)).pack(pady=2)
+                fg="blue", font=("Microsoft YaHei UI", 9, "bold")).pack(pady=2)
         
-        tk.Label(password_window, text="请输入密码：", font=("Arial", 10)).pack(pady=15)
-        password_entry = tk.Entry(password_window, show="*", font=("Arial", 12), width=20)
+        tk.Label(password_window, text="请输入密码：", font=("Microsoft YaHei UI", 10, "bold")).pack(pady=15)
+        password_entry = tk.Entry(password_window, show="*", font=("Microsoft YaHei UI", 12, "bold"), width=20)
         password_entry.pack(pady=5)
         password_entry.focus_set()
         
@@ -9463,20 +9521,20 @@ class OCRApp:
         menu_window = self.create_popup_window(self.root, "尺寸限制管理", "size_limit_menu", 550, 500)
         
         tk.Label(menu_window, text="🔓 尺寸限制管理", 
-                font=("Arial", 14, "bold")).pack(pady=20)
+                font=("Microsoft YaHei UI", 14, "bold")).pack(pady=20)
         
         tk.Label(menu_window, text="请选择操作：", 
-                fg="gray", font=("Arial", 10)).pack(pady=10)
+                fg="gray", font=("Microsoft YaHei UI", 10, "bold")).pack(pady=10)
         
         # 选项1：解除所有限制
         option1_frame = tk.Frame(menu_window, relief=tk.RIDGE, borderwidth=2, bg="#E3F2FD")
         option1_frame.pack(pady=10, padx=30, fill=tk.X)
         
         tk.Label(option1_frame, text="1️⃣ 解除所有限制", 
-                font=("Arial", 12, "bold"), bg="#E3F2FD").pack(pady=10)
+                font=("Microsoft YaHei UI", 12, "bold"), bg="#E3F2FD").pack(pady=10)
         
         tk.Label(option1_frame, text="允许对任意尺寸的图片使用高精度识别\n不受尺寸范围限制", 
-                fg="gray", font=("Arial", 9), bg="#E3F2FD").pack(pady=5)
+                fg="gray", font=("Microsoft YaHei UI", 9, "bold"), bg="#E3F2FD").pack(pady=5)
         
         def remove_all_limits():
             # 设置为无限制模式
@@ -9502,24 +9560,24 @@ class OCRApp:
                     self.batch_select_files_internal(self.image_paths)
         
         tk.Button(option1_frame, text="解除所有限制", command=remove_all_limits,
-                 bg="#2196F3", fg="white", padx=20, pady=8, font=("Arial", 10)).pack(pady=10)
+                 bg="#2196F3", fg="white", padx=20, pady=8, font=("Microsoft YaHei UI", 10, "bold")).pack(pady=10)
         
         # 选项2：修改尺寸范围
         option2_frame = tk.Frame(menu_window, relief=tk.RIDGE, borderwidth=2, bg="#FFF3E0")
         option2_frame.pack(pady=10, padx=30, fill=tk.X)
         
         tk.Label(option2_frame, text="2️⃣ 修改尺寸范围", 
-                font=("Arial", 12, "bold"), bg="#FFF3E0").pack(pady=10)
+                font=("Microsoft YaHei UI", 12, "bold"), bg="#FFF3E0").pack(pady=10)
         
         tk.Label(option2_frame, text="自定义高精度和快速识别的尺寸范围\n更灵活地控制识别条件", 
-                fg="gray", font=("Arial", 9), bg="#FFF3E0").pack(pady=5)
+                fg="gray", font=("Microsoft YaHei UI", 9, "bold"), bg="#FFF3E0").pack(pady=5)
         
         def open_size_settings():
             menu_window.destroy()
             self.show_size_settings()
         
         tk.Button(option2_frame, text="修改尺寸范围", command=open_size_settings,
-                 bg="#FF9800", fg="white", padx=20, pady=8, font=("Arial", 10)).pack(pady=10)
+                 bg="#FF9800", fg="white", padx=20, pady=8, font=("Microsoft YaHei UI", 10, "bold")).pack(pady=10)
         
         # 关闭按钮
         tk.Button(menu_window, text="关闭", command=menu_window.destroy,
@@ -11490,7 +11548,7 @@ class OCRApp:
         header.pack(fill=tk.X)
         header.pack_propagate(False)
         tk.Label(header, text="🔄  替换规则", bg="#F97316", fg="white",
-                 font=("Microsoft YaHei", 12, "bold")).pack(side=tk.LEFT, padx=16, pady=10)
+                 font=("Microsoft YaHei UI", 12, "bold")).pack(side=tk.LEFT, padx=16, pady=10)
 
         local_rules = [dict(r) for r in self._sort_replace_rules(self.replace_rules)]
 
@@ -11502,9 +11560,9 @@ class OCRApp:
         hdr = tk.Frame(list_frame, bg="#E2E8F0")
         hdr.pack(fill=tk.X)
         tk.Label(hdr, text="查找内容", bg="#E2E8F0", fg="#374151",
-                 font=("Microsoft YaHei", 9, "bold"), width=20, anchor="w").pack(side=tk.LEFT, padx=8, pady=4)
+                 font=("Microsoft YaHei UI", 9, "bold"), width=20, anchor="w").pack(side=tk.LEFT, padx=8, pady=4)
         tk.Label(hdr, text="替换为（空=删除）", bg="#E2E8F0", fg="#374151",
-                 font=("Microsoft YaHei", 9, "bold"), width=20, anchor="w").pack(side=tk.LEFT, padx=8, pady=4)
+                 font=("Microsoft YaHei UI", 9, "bold"), width=20, anchor="w").pack(side=tk.LEFT, padx=8, pady=4)
 
         # 滚动区
         scroll_frame = tk.Frame(list_frame, bg="#F8FAFC")
@@ -11529,20 +11587,20 @@ class OCRApp:
         def add_row(find_val='', replace_val=''):
             row = tk.Frame(rows_frame, bg="#F8FAFC")
             row.pack(fill=tk.X, pady=2)
-            find_ent = tk.Entry(row, font=("Microsoft YaHei", 10), width=18,
+            find_ent = tk.Entry(row, font=("Microsoft YaHei UI", 10, "bold"), width=18,
                                 relief="flat", highlightthickness=1,
                                 highlightbackground="#D1D5DB", highlightcolor="#F97316")
             find_ent.insert(0, find_val)
             find_ent.pack(side=tk.LEFT, padx=(0, 6), ipady=4)
             tk.Label(row, text="→", bg="#F8FAFC", fg="#9CA3AF",
-                     font=("Microsoft YaHei", 11)).pack(side=tk.LEFT, padx=4)
-            rep_ent = tk.Entry(row, font=("Microsoft YaHei", 10), width=18,
+                     font=("Microsoft YaHei UI", 11, "bold")).pack(side=tk.LEFT, padx=4)
+            rep_ent = tk.Entry(row, font=("Microsoft YaHei UI", 10, "bold"), width=18,
                                relief="flat", highlightthickness=1,
                                highlightbackground="#D1D5DB", highlightcolor="#F97316")
             rep_ent.insert(0, replace_val)
             rep_ent.pack(side=tk.LEFT, padx=(6, 8), ipady=4)
             del_btn = tk.Button(row, text="✕", bg="#FEE2E2", fg="#EF4444",
-                                relief="flat", font=("Microsoft YaHei", 9),
+                                relief="flat", font=("Microsoft YaHei UI", 9, "bold"),
                                 padx=6, pady=2, cursor="hand2",
                                 command=lambda r=row, w=(find_ent, rep_ent): _del_row(r, w))
             del_btn.pack(side=tk.LEFT)
@@ -11561,7 +11619,7 @@ class OCRApp:
 
         tk.Button(btn_bar, text="＋ 添加规则", command=lambda: add_row(),
                   bg="#F97316", fg="white", relief="flat",
-                  font=("Microsoft YaHei", 9), padx=10, pady=5,
+                  font=("Microsoft YaHei UI", 9, "bold"), padx=10, pady=5,
                   cursor="hand2").pack(side=tk.LEFT)
 
         def collect_rules():
@@ -11589,15 +11647,15 @@ class OCRApp:
 
         tk.Button(btn_bar, text="应用", command=save_and_apply,
                   bg="#22C55E", fg="white", relief="flat",
-                  font=("Microsoft YaHei", 9, "bold"), padx=10, pady=5,
+                  font=("Microsoft YaHei UI", 9, "bold"), padx=10, pady=5,
                   cursor="hand2").pack(side=tk.RIGHT, padx=(6, 0))
         tk.Button(btn_bar, text="保存", command=save_only,
                   bg="#2563EB", fg="white", relief="flat",
-                  font=("Microsoft YaHei", 9), padx=10, pady=5,
+                  font=("Microsoft YaHei UI", 9, "bold"), padx=10, pady=5,
                   cursor="hand2").pack(side=tk.RIGHT, padx=(6, 0))
         tk.Button(btn_bar, text="取消", command=win.destroy,
                   bg="#E5E7EB", fg="#374151", relief="flat",
-                  font=("Microsoft YaHei", 9), padx=10, pady=5,
+                  font=("Microsoft YaHei UI", 9, "bold"), padx=10, pady=5,
                   cursor="hand2").pack(side=tk.RIGHT)
 
     def show_filter_settings(self):
@@ -11683,7 +11741,7 @@ class OCRApp:
             
             # 优先显示常用中文字体
             priority_fonts = [
-                "Microsoft YaHei", "微软雅黑",
+                "Microsoft YaHei UI", "微软雅黑",
                 "SimHei", "黑体", 
                 "SimSun", "宋体",
                 "KaiTi", "楷体",
@@ -11712,7 +11770,7 @@ class OCRApp:
         except Exception as e:
             print(f"⚠️ 获取系统字体失败: {e}")
             # 如果获取失败，返回默认字体列表
-            return ["Microsoft YaHei", "Arial", "SimHei", "Times New Roman", "Courier New"]
+            return ["Microsoft YaHei UI", "Arial", "SimHei", "Times New Roman", "Courier New"]
     
     def update_size_hint_display(self):
         """更新界面上的尺寸提示信息"""
@@ -11740,7 +11798,7 @@ class OCRApp:
         settings_window = self.create_popup_window(self.root, "图片尺寸限制设置", "size_limit_settings", 600, 700)
         
         tk.Label(settings_window, text="⚙️ 图片尺寸限制设置", 
-                font=("Arial", 14, "bold")).pack(pady=15)
+                font=("Microsoft YaHei UI", 14, "bold")).pack(pady=15)
         
         tk.Label(settings_window, text="设置OCR识别的图片尺寸范围要求", 
                 fg="gray").pack(pady=5)
@@ -11751,7 +11809,7 @@ class OCRApp:
         
         # 高精度识别设置
         tk.Label(settings_frame, text="高精度识别范围（适合大图）：", 
-                font=("Arial", 11, "bold")).grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=10)
+                font=("Microsoft YaHei UI", 11, "bold")).grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=10)
         
         tk.Label(settings_frame, text="最小宽度 (px):").grid(row=1, column=0, sticky=tk.W, pady=5)
         acc_min_width_var = tk.StringVar(value=str(self.size_limits['accurate_min_width']))
@@ -11775,7 +11833,7 @@ class OCRApp:
         
         # 快速识别设置
         tk.Label(settings_frame, text="快速识别范围（适合小图）：", 
-                font=("Arial", 11, "bold")).grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=10)
+                font=("Microsoft YaHei UI", 11, "bold")).grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=10)
         
         tk.Label(settings_frame, text="最小宽度 (px):").grid(row=6, column=0, sticky=tk.W, pady=5)
         bas_min_width_var = tk.StringVar(value=str(self.size_limits['basic_min_width']))
@@ -11800,7 +11858,7 @@ class OCRApp:
         # 提示信息
         hint_text = "💡 提示：修改后将立即生效，并保存到配置文件\n范围格式：最小值 ≤ 图片尺寸 ≤ 最大值"
         tk.Label(settings_frame, text=hint_text, fg="blue", justify=tk.LEFT,
-                font=("Arial", 9)).grid(row=10, column=0, columnspan=2, pady=15)
+                font=("Microsoft YaHei UI", 9, "bold")).grid(row=10, column=0, columnspan=2, pady=15)
         
         def save_settings():
             try:
@@ -11893,10 +11951,10 @@ class OCRApp:
         include_cache_var = tk.BooleanVar(value=bool(self.stats_count_cache_as_success))
         tk.Checkbutton(stats_frame, text="缓存复用也计入成功统计",
                        variable=include_cache_var,
-                       font=("Microsoft YaHei", 10)).pack(anchor=tk.W)
+                       font=("Microsoft YaHei UI", 10, "bold")).pack(anchor=tk.W)
         tk.Label(stats_frame,
                  text='关闭：缓存只进入"缓存复用"列；开启：缓存同时计入成功列',
-                 fg="gray", font=("Arial", 9), justify=tk.LEFT).pack(anchor=tk.W)
+                 fg="gray", font=("Microsoft YaHei UI", 9, "bold"), justify=tk.LEFT).pack(anchor=tk.W)
 
         # 按钮区
         btn_frame = tk.Frame(settings_window)
@@ -11932,7 +11990,7 @@ class OCRApp:
         win = self.create_popup_window(self.root, "统计设置", "stats_settings", 520, 300)
 
         tk.Label(win, text="📊 统计口径设置",
-                 font=("Arial", 15, "bold")).pack(pady=(20, 10))
+                 font=("Microsoft YaHei UI", 15, "bold")).pack(pady=(20, 10))
 
         include_cache_var = tk.BooleanVar(value=bool(self.stats_count_cache_as_success))
 
@@ -11943,7 +12001,7 @@ class OCRApp:
             option_frame,
             text="缓存复用也计入成功统计",
             variable=include_cache_var,
-            font=("Microsoft YaHei", 11)
+            font=("Microsoft YaHei UI", 11, "bold")
         ).pack(anchor=tk.W)
 
         hint = (
@@ -11952,7 +12010,7 @@ class OCRApp:
             "此设置只影响之后新增的统计记录，不会重算已有统计。"
         )
         tk.Label(win, text=hint, fg="gray", justify=tk.LEFT,
-                 font=("Microsoft YaHei", 9)).pack(fill=tk.X, padx=32, pady=(6, 12))
+                 font=("Microsoft YaHei UI", 9, "bold")).pack(fill=tk.X, padx=32, pady=(6, 12))
 
         btn_frame = tk.Frame(win)
         btn_frame.pack(pady=8)
@@ -12066,7 +12124,7 @@ class OCRApp:
         stats_window = self.create_popup_window(self.root, "识别统计", "stats_window", 1100, 850)
         
         tk.Label(stats_window, text="📊 OCR 识别统计", 
-                font=("Arial", 16, "bold")).pack(pady=15)
+                font=("Microsoft YaHei UI", 16, "bold")).pack(pady=15)
         
         # 创建选项卡
         from tkinter import ttk
@@ -12113,7 +12171,7 @@ class OCRApp:
         history_window = self.create_popup_window(self.root, "识别历史记录", "history_window", 1200, 800)
         
         tk.Label(history_window, text="📜 OCR 识别历史记录", 
-                font=("Arial", 16, "bold")).pack(pady=15)
+                font=("Microsoft YaHei UI", 16, "bold")).pack(pady=15)
         
         # 创建表格框架
         from tkinter import ttk
@@ -12122,13 +12180,13 @@ class OCRApp:
         search_frame.pack(fill=tk.X, padx=20, pady=(0, 8))
         search_inner = tk.Frame(search_frame)
         search_inner.pack(side=tk.RIGHT)
-        tk.Label(search_inner, text="搜索：", font=("Microsoft YaHei", 10)).pack(side=tk.LEFT)
+        tk.Label(search_inner, text="搜索：", font=("Microsoft YaHei UI", 10, "bold")).pack(side=tk.LEFT)
         search_var = tk.StringVar()
-        search_entry = tk.Entry(search_inner, textvariable=search_var, font=("Microsoft YaHei", 10), width=28)
+        search_entry = tk.Entry(search_inner, textvariable=search_var, font=("Microsoft YaHei UI", 10, "bold"), width=28)
         search_entry.pack(side=tk.LEFT, padx=(6, 8), ipady=3)
         search_status_var = tk.StringVar()
         tk.Label(search_inner, textvariable=search_status_var, fg="gray", width=16, anchor="w",
-                 font=("Microsoft YaHei", 9)).pack(side=tk.RIGHT, padx=(8, 0))
+                 font=("Microsoft YaHei UI", 9, "bold")).pack(side=tk.RIGHT, padx=(8, 0))
         tk.Button(search_inner, text="清空", command=lambda: search_var.set(""),
                  bg="#E5E7EB", fg="#374151", padx=12, pady=3).pack(side=tk.RIGHT)
         
@@ -12164,8 +12222,8 @@ class OCRApp:
         
         # 配置样式 (使用自定义样式名)
         style = ttk.Style()
-        style.configure("History.Treeview", font=("Microsoft YaHei", 10), rowheight=30)
-        style.configure("History.Treeview.Heading", font=("Microsoft YaHei", 11, "bold"))
+        style.configure("History.Treeview", font=("Microsoft YaHei UI", 10, "bold"), rowheight=30)
+        style.configure("History.Treeview.Heading", font=("Microsoft YaHei UI", 11, "bold"))
         
         def history_item_matches(item, keyword):
             """按时间、类型、文件名和识别内容搜索历史记录。"""
@@ -12284,7 +12342,7 @@ class OCRApp:
             total_lines = sum(item['total_lines'] for item in self.history_data)
             info_text += f" | 总文件数: {total_files} | 总行数: {total_lines}"
         
-        tk.Label(history_window, text=info_text, fg="gray", font=("Arial", 10)).pack(pady=5)
+        tk.Label(history_window, text=info_text, fg="gray", font=("Microsoft YaHei UI", 10, "bold")).pack(pady=5)
     
     def show_settings_panel(self):
         """右上角设置面板：书籍信息 + 导出设置 + 快捷操作"""
@@ -12293,7 +12351,7 @@ class OCRApp:
 
         # ── 导出设置 ──
         sec2 = tk.LabelFrame(win, text='📁 导出设置', padx=12, pady=10, bg=BG,
-                             font=('Microsoft YaHei', 10, 'bold'), fg='#374151')
+                             font=('Microsoft YaHei UI', 10, 'bold'), fg='#374151')
         sec2.pack(fill=tk.X, padx=20, pady=(12, 0))
 
         path_row = tk.Frame(sec2, bg=BG)
@@ -12301,7 +12359,7 @@ class OCRApp:
         path_text = self.export_save_path if self.export_save_path else '默认：文档/OCR导出'
         path_lbl = tk.Label(path_row, text=path_text, bg=BG,
                             fg='#2563EB' if self.export_save_path else '#9CA3AF',
-                            font=('Microsoft YaHei', 9), anchor='w', cursor='hand2')
+                            font=('Microsoft YaHei UI', 9, 'bold'), anchor='w', cursor='hand2')
         path_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
         path_lbl.bind('<Button-1>', lambda e: (
             self._set_export_save_path(),
@@ -12313,31 +12371,31 @@ class OCRApp:
             path_lbl.config(
                 text=self.export_save_path or '默认：文档/OCR导出',
                 fg='#2563EB' if self.export_save_path else '#9CA3AF')),
-                  bg='#E5E7EB', relief='flat', font=('Microsoft YaHei', 8),
+                  bg='#E5E7EB', relief='flat', font=('Microsoft YaHei UI', 8, 'bold'),
                   padx=8, cursor='hand2').pack(side=tk.LEFT, padx=(4, 2))
         tk.Button(path_row, text='✕', command=lambda: (
             self._clear_export_save_path(),
             path_lbl.config(text='默认：文档/OCR导出', fg='#9CA3AF')),
                   bg='#E5E7EB', fg='#EF4444', relief='flat',
-                  font=('Microsoft YaHei', 8), padx=6, cursor='hand2').pack(side=tk.LEFT)
+                  font=('Microsoft YaHei UI', 8, 'bold'), padx=6, cursor='hand2').pack(side=tk.LEFT)
 
         # ── 置信度警告设置 ──
         sec_conf = tk.LabelFrame(win, text='⚠ 置信度警告', padx=12, pady=10, bg=BG,
-                                 font=('Microsoft YaHei', 10, 'bold'), fg='#374151')
+                                 font=('Microsoft YaHei UI', 10, 'bold'), fg='#374151')
         sec_conf.pack(fill=tk.X, padx=20, pady=(12, 0))
 
         conf_row = tk.Frame(sec_conf, bg=BG)
         conf_row.pack(fill=tk.X)
         tk.Label(conf_row, text='低于', bg=BG, fg='#374151',
-                 font=('Microsoft YaHei', 9)).pack(side=tk.LEFT)
+                 font=('Microsoft YaHei UI', 9, 'bold')).pack(side=tk.LEFT)
         conf_var = tk.StringVar(value=str(self.store.get('conf_threshold', 0)))
         conf_entry = tk.Entry(conf_row, textvariable=conf_var, width=6,
-                              font=('Microsoft YaHei', 9), relief='flat',
+                              font=('Microsoft YaHei UI', 9, 'bold'), relief='flat',
                               highlightthickness=1, highlightbackground='#DDE3EA',
                               justify='center')
         conf_entry.pack(side=tk.LEFT, padx=6, ipady=3)
         tk.Label(conf_row, text='% 的行高亮为淡黄色（0 = 不启用）', bg=BG, fg='#6B7280',
-                 font=('Microsoft YaHei', 9)).pack(side=tk.LEFT)
+                 font=('Microsoft YaHei UI', 9, 'bold')).pack(side=tk.LEFT)
 
         def save_conf_threshold():
             try:
@@ -12354,12 +12412,12 @@ class OCRApp:
 
         tk.Button(conf_row, text='保存', command=save_conf_threshold,
                   bg='#1A6FD4', fg='white', relief='flat',
-                  font=('Microsoft YaHei', 8), padx=10, pady=3,
+                  font=('Microsoft YaHei UI', 8, 'bold'), padx=10, pady=3,
                   cursor='hand2').pack(side=tk.LEFT, padx=(8, 0))
 
         # ── 快捷操作 ──
         sec3 = tk.LabelFrame(win, text='🔧 快捷操作', padx=12, pady=10, bg=BG,
-                             font=('Microsoft YaHei', 10, 'bold'), fg='#374151')
+                             font=('Microsoft YaHei UI', 10, 'bold'), fg='#374151')
         sec3.pack(fill=tk.X, padx=20, pady=(12, 0))
 
         btn_r = tk.Frame(sec3, bg=BG)
@@ -12367,19 +12425,19 @@ class OCRApp:
         tk.Button(btn_r, text='加|0|0', command=lambda: (win.destroy(), self.add_zeros_to_lines()),
                   bg='white', fg='#374151', relief='flat',
                   highlightthickness=1, highlightbackground='#E5E7EB',
-                  font=('Microsoft YaHei', 9), padx=12, pady=4,
+                  font=('Microsoft YaHei UI', 9, 'bold'), padx=12, pady=4,
                   cursor='hand2').pack(side=tk.LEFT, padx=(0, 6))
         tk.Button(btn_r, text='导出', command=lambda: (win.destroy(), self.export_results()),
                   bg='white', fg='#374151', relief='flat',
                   highlightthickness=1, highlightbackground='#E5E7EB',
-                  font=('Microsoft YaHei', 9), padx=12, pady=4,
+                  font=('Microsoft YaHei UI', 9, 'bold'), padx=12, pady=4,
                   cursor='hand2').pack(side=tk.LEFT)
 
         conf_entry.bind('<Return>', lambda e: save_conf_threshold())
 
         # ── 拼接图片目录设置 ──
         sec_merge = tk.LabelFrame(win, text='🖼 拼接图片目录设置', padx=12, pady=10, bg=BG,
-                                  font=('Microsoft YaHei', 10, 'bold'), fg='#374151')
+                                  font=('Microsoft YaHei UI', 10, 'bold'), fg='#374151')
         sec_merge.pack(fill=tk.X, padx=20, pady=(12, 0))
 
         merge_row = tk.Frame(sec_merge, bg=BG)
@@ -12387,7 +12445,7 @@ class OCRApp:
         merge_text = self.merge_save_path if self.merge_save_path else '未设置（使用拼接预览页按钮设置）'
         merge_lbl = tk.Label(merge_row, text=merge_text, bg=BG,
                              fg='#2563EB' if self.merge_save_path else '#9CA3AF',
-                             font=('Microsoft YaHei', 9), anchor='w')
+                             font=('Microsoft YaHei UI', 9, 'bold'), anchor='w')
         merge_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         def _refresh_merge_lbl():
@@ -12397,32 +12455,32 @@ class OCRApp:
 
         tk.Button(merge_row, text='设置', command=lambda: (
             self._set_merge_save_path(), _refresh_merge_lbl()),
-                  bg='#E5E7EB', relief='flat', font=('Microsoft YaHei', 8),
+                  bg='#E5E7EB', relief='flat', font=('Microsoft YaHei UI', 8, 'bold'),
                   padx=8, cursor='hand2').pack(side=tk.LEFT, padx=(4, 2))
         tk.Button(merge_row, text='✕', command=lambda: (
             self._clear_merge_save_path(), _refresh_merge_lbl()),
                   bg='#E5E7EB', fg='#EF4444', relief='flat',
-                  font=('Microsoft YaHei', 8), padx=6, cursor='hand2').pack(side=tk.LEFT)
+                  font=('Microsoft YaHei UI', 8, 'bold'), padx=6, cursor='hand2').pack(side=tk.LEFT)
 
         # ── 图片预览设置 ──
         sec_gallery = tk.LabelFrame(win, text='🖼 图片预览设置', padx=12, pady=10, bg=BG,
-                                    font=('Microsoft YaHei', 10, 'bold'), fg='#374151')
+                                    font=('Microsoft YaHei UI', 10, 'bold'), fg='#374151')
         sec_gallery.pack(fill=tk.X, padx=20, pady=(12, 0))
 
         gallery_row = tk.Frame(sec_gallery, bg=BG)
         gallery_row.pack(fill=tk.X)
         tk.Label(gallery_row, text='已识别图片显示最近', bg=BG, fg='#374151',
-                 font=('Microsoft YaHei', 9)).pack(side=tk.LEFT)
+                 font=('Microsoft YaHei UI', 9, 'bold')).pack(side=tk.LEFT)
         gallery_limit_var = tk.StringVar(value=str(getattr(self, 'gallery_ocr_limit', 30)))
         gallery_limit_entry = tk.Entry(gallery_row, textvariable=gallery_limit_var, width=7,
-                                       font=('Microsoft YaHei', 9), relief='flat',
+                                       font=('Microsoft YaHei UI', 9, 'bold'), relief='flat',
                                        highlightthickness=1, highlightbackground='#DDE3EA',
                                        justify='center')
         gallery_limit_entry.pack(side=tk.LEFT, padx=6, ipady=3)
         tk.Label(gallery_row, text='条（0 = 不限制）', bg=BG, fg='#6B7280',
-                 font=('Microsoft YaHei', 9)).pack(side=tk.LEFT)
+                 font=('Microsoft YaHei UI', 9, 'bold')).pack(side=tk.LEFT)
 
-        gallery_msg = tk.Label(sec_gallery, text='', bg=BG, font=('Microsoft YaHei', 8))
+        gallery_msg = tk.Label(sec_gallery, text='', bg=BG, font=('Microsoft YaHei UI', 8, 'bold'))
         gallery_msg.pack(anchor='w', pady=(2, 0))
 
         def save_gallery_limit():
@@ -12439,36 +12497,36 @@ class OCRApp:
 
         tk.Button(gallery_row, text='保存', command=save_gallery_limit,
                   bg='#1A6FD4', fg='white', relief='flat',
-                  font=('Microsoft YaHei', 8), padx=10, pady=3,
+                  font=('Microsoft YaHei UI', 8, 'bold'), padx=10, pady=3,
                   cursor='hand2').pack(side=tk.LEFT, padx=(8, 0))
         gallery_limit_entry.bind('<Return>', lambda e: save_gallery_limit())
 
         # ── 历史记录设置 ──
         sec_hist = tk.LabelFrame(win, text='📝 历史记录', padx=12, pady=10, bg=BG,
-                                 font=('Microsoft YaHei', 10, 'bold'), fg='#374151')
+                                 font=('Microsoft YaHei UI', 10, 'bold'), fg='#374151')
         sec_hist.pack(fill=tk.X, padx=20, pady=(12, 0))
 
         hist_row = tk.Frame(sec_hist, bg=BG)
         hist_row.pack(fill=tk.X)
         tk.Label(hist_row, text='最多保存', bg=BG, fg='#374151',
-                 font=('Microsoft YaHei', 9)).pack(side=tk.LEFT)
+                 font=('Microsoft YaHei UI', 9, 'bold')).pack(side=tk.LEFT)
         hist_limit_var = tk.StringVar(value=str(self.history_limit))
         tk.Entry(hist_row, textvariable=hist_limit_var, width=7,
-                 font=('Microsoft YaHei', 9), relief='flat',
+                 font=('Microsoft YaHei UI', 9, 'bold'), relief='flat',
                  highlightthickness=1, highlightbackground='#DDE3EA',
                  justify='center').pack(side=tk.LEFT, padx=6, ipady=3)
         tk.Label(hist_row, text='条（0 = 不限制）', bg=BG, fg='#6B7280',
-                 font=('Microsoft YaHei', 9)).pack(side=tk.LEFT)
+                 font=('Microsoft YaHei UI', 9, 'bold')).pack(side=tk.LEFT)
 
         hist_pwd_var = tk.StringVar()
         tk.Label(hist_row, text='密码：', bg=BG, fg='#374151',
-                 font=('Microsoft YaHei', 9)).pack(side=tk.LEFT, padx=(12, 0))
+                 font=('Microsoft YaHei UI', 9, 'bold')).pack(side=tk.LEFT, padx=(12, 0))
         tk.Entry(hist_row, textvariable=hist_pwd_var, show='*', width=8,
-                 font=('Microsoft YaHei', 9), relief='flat',
+                 font=('Microsoft YaHei UI', 9, 'bold'), relief='flat',
                  highlightthickness=1, highlightbackground='#DDE3EA',
                  justify='center').pack(side=tk.LEFT, padx=4, ipady=3)
 
-        hist_msg = tk.Label(sec_hist, text='', bg=BG, font=('Microsoft YaHei', 8))
+        hist_msg = tk.Label(sec_hist, text='', bg=BG, font=('Microsoft YaHei UI', 8, 'bold'))
         hist_msg.pack(anchor='w', pady=(2, 0))
 
         def save_hist_limit():
@@ -12496,42 +12554,42 @@ class OCRApp:
 
         tk.Button(hist_row, text='保存', command=save_hist_limit,
                   bg='#1A6FD4', fg='white', relief='flat',
-                  font=('Microsoft YaHei', 8), padx=10, pady=3,
+                  font=('Microsoft YaHei UI', 8, 'bold'), padx=10, pady=3,
                   cursor='hand2').pack(side=tk.LEFT, padx=(8, 0))
 
         # ── 修改密码 ──
         sec_pwd = tk.LabelFrame(win, text='🔐 修改密码', padx=12, pady=10, bg=BG,
-                                font=('Microsoft YaHei', 10, 'bold'), fg='#374151')
+                                font=('Microsoft YaHei UI', 10, 'bold'), fg='#374151')
         sec_pwd.pack(fill=tk.X, padx=20, pady=(12, 0))
 
         pwd_grid = tk.Frame(sec_pwd, bg=BG)
         pwd_grid.pack(fill=tk.X)
 
         tk.Label(pwd_grid, text='旧密码', bg=BG, fg='#374151',
-                 font=('Microsoft YaHei', 9)).grid(row=0, column=0, sticky='w', pady=3)
+                 font=('Microsoft YaHei UI', 9, 'bold')).grid(row=0, column=0, sticky='w', pady=3)
         old_pwd_var = tk.StringVar()
         tk.Entry(pwd_grid, textvariable=old_pwd_var, show='*', width=14,
-                 font=('Microsoft YaHei', 9), relief='flat',
+                 font=('Microsoft YaHei UI', 9, 'bold'), relief='flat',
                  highlightthickness=1, highlightbackground='#DDE3EA'
                  ).grid(row=0, column=1, sticky='w', padx=(8, 0), ipady=3)
 
         tk.Label(pwd_grid, text='新密码', bg=BG, fg='#374151',
-                 font=('Microsoft YaHei', 9)).grid(row=1, column=0, sticky='w', pady=3)
+                 font=('Microsoft YaHei UI', 9, 'bold')).grid(row=1, column=0, sticky='w', pady=3)
         new_pwd_var = tk.StringVar()
         tk.Entry(pwd_grid, textvariable=new_pwd_var, show='*', width=14,
-                 font=('Microsoft YaHei', 9), relief='flat',
+                 font=('Microsoft YaHei UI', 9, 'bold'), relief='flat',
                  highlightthickness=1, highlightbackground='#DDE3EA'
                  ).grid(row=1, column=1, sticky='w', padx=(8, 0), ipady=3)
 
         tk.Label(pwd_grid, text='确认新密码', bg=BG, fg='#374151',
-                 font=('Microsoft YaHei', 9)).grid(row=2, column=0, sticky='w', pady=3)
+                 font=('Microsoft YaHei UI', 9, 'bold')).grid(row=2, column=0, sticky='w', pady=3)
         confirm_pwd_var = tk.StringVar()
         tk.Entry(pwd_grid, textvariable=confirm_pwd_var, show='*', width=14,
-                 font=('Microsoft YaHei', 9), relief='flat',
+                 font=('Microsoft YaHei UI', 9, 'bold'), relief='flat',
                  highlightthickness=1, highlightbackground='#DDE3EA'
                  ).grid(row=2, column=1, sticky='w', padx=(8, 0), ipady=3)
 
-        pwd_msg = tk.Label(sec_pwd, text='', bg=BG, font=('Microsoft YaHei', 8))
+        pwd_msg = tk.Label(sec_pwd, text='', bg=BG, font=('Microsoft YaHei UI', 8, 'bold'))
         pwd_msg.pack(anchor='w', pady=(4, 0))
 
         def save_password():
@@ -12556,17 +12614,17 @@ class OCRApp:
 
         tk.Button(sec_pwd, text='修改密码', command=save_password,
                   bg='#1A6FD4', fg='white', relief='flat',
-                  font=('Microsoft YaHei', 9), padx=14, pady=4,
+                  font=('Microsoft YaHei UI', 9, 'bold'), padx=14, pady=4,
                   cursor='hand2').pack(anchor='w', pady=(6, 0))
 
         # 底部按钮
         bottom = tk.Frame(win, bg=BG)
         bottom.pack(fill=tk.X, padx=20, pady=(16, 12))
         tk.Button(bottom, text='完成', command=win.destroy,
-                  bg='#1A6FD4', fg='white', font=('Microsoft YaHei', 10, 'bold'),
+                  bg='#1A6FD4', fg='white', font=('Microsoft YaHei UI', 10, 'bold'),
                   padx=24, pady=5, cursor='hand2').pack(side=tk.RIGHT)
         tk.Button(bottom, text='取消', command=win.destroy,
-                  bg='#F3F4F6', fg='#374151', font=('Microsoft YaHei', 10),
+                  bg='#F3F4F6', fg='#374151', font=('Microsoft YaHei UI', 10, 'bold'),
                   padx=24, pady=5, cursor='hand2').pack(side=tk.RIGHT, padx=(0, 8))
     
     def show_history_detail(self, history_item):
@@ -12576,7 +12634,7 @@ class OCRApp:
         # 标题
         title_text = f"📄 {history_item['type']} - {history_item['timestamp']}"
         tk.Label(detail_window, text=title_text, 
-                font=("Arial", 14, "bold")).pack(pady=15)
+                font=("Microsoft YaHei UI", 14, "bold")).pack(pady=15)
         
         # 信息
         info_text = f"文件数: {history_item['file_count']} | 总行数: {history_item['total_lines']}"
@@ -12584,7 +12642,7 @@ class OCRApp:
         
         # 创建文本框显示内容（ScrolledText自带滚动条）
         text_widget = scrolledtext.ScrolledText(detail_window, width=100, height=30,
-                                                font=("Microsoft YaHei", 10))
+                                                font=("Microsoft YaHei UI", 10, "bold"))
         text_widget.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
         
         # 显示内容
@@ -12652,7 +12710,7 @@ class OCRApp:
 
         tk.Button(btn_frame, text="📄 复制全部", command=copy_all_content,
                  bg="#607D8B", fg="white", padx=15, pady=8,
-                 font=("Arial", 10)).pack(side=tk.LEFT, padx=3)
+                 font=("Microsoft YaHei UI", 10, "bold")).pack(side=tk.LEFT, padx=3)
         
         tk.Button(btn_frame, text="导出文件", command=export_history_item,
                  bg="#4CAF50", fg="white", padx=20, pady=8).pack(side=tk.LEFT, padx=5)
@@ -12728,7 +12786,7 @@ class OCRApp:
   总输出行数: {total_all_lines} 行
   日平均处理: {total_all_processed / total_days if total_days > 0 else 0:.1f} 张/天
         """
-        tk.Label(info_frame, text=total_info, font=("Arial", 11), 
+        tk.Label(info_frame, text=total_info, font=("Microsoft YaHei UI", 11, "bold"), 
                 justify=tk.LEFT, anchor=tk.W).pack(fill=tk.BOTH, expand=True)
     
     def _show_daily_stats(self, parent):
@@ -12776,18 +12834,18 @@ class OCRApp:
         
         # 配置表格样式
         style = ttk.Style()
-        style.configure("Treeview", font=("Microsoft YaHei", self.current_font_size), rowheight=max(int(self.current_font_size * 2.2), self.current_font_size + 10))
-        style.configure("Treeview.Heading", font=("Microsoft YaHei", 11, "bold"))
+        style.configure("Treeview", font=("Microsoft YaHei UI", self.current_font_size, "bold"), rowheight=max(int(self.current_font_size * 2.2), self.current_font_size + 10))
+        style.configure("Treeview.Heading", font=("Microsoft YaHei UI", 11, "bold"))
 
         control_frame = tk.Frame(parent)
         control_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
-        tk.Label(control_frame, text="指定日期：", font=("Microsoft YaHei", 10)).pack(side=tk.LEFT)
+        tk.Label(control_frame, text="指定日期：", font=("Microsoft YaHei UI", 10, "bold")).pack(side=tk.LEFT)
         delete_date_var = tk.StringVar()
         delete_date_entry = tk.Entry(control_frame, textvariable=delete_date_var,
-                                     font=("Microsoft YaHei", 10), width=14)
+                                     font=("Microsoft YaHei UI", 10, "bold"), width=14)
         delete_date_entry.pack(side=tk.LEFT, padx=(4, 8), ipady=2)
         tk.Label(control_frame, text="多个日期可用逗号、空格或换行分隔", fg="gray",
-                 font=("Microsoft YaHei", 9)).pack(side=tk.LEFT, padx=(0, 12))
+                 font=("Microsoft YaHei UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 12))
 
         def parse_stats_dates(text):
             return [part for part in re.split(r"[\s,，;；]+", text.strip()) if part]
@@ -12908,7 +12966,7 @@ class OCRApp:
         tree.tag_configure("accurate", background="#E3F2FD")
         tree.tag_configure("basic", background="#FFF3E0")
         tree.tag_configure("general", background="#F3E5F5")
-        tree.tag_configure("total", background="#E8F5E9", font=("Microsoft YaHei", self.current_font_size, "bold"))
+        tree.tag_configure("total", background="#E8F5E9", font=("Microsoft YaHei UI", self.current_font_size, "bold"))
     
     def _show_monthly_stats(self, parent):
         """显示按月统计"""
@@ -12983,8 +13041,8 @@ class OCRApp:
         
         # 配置表格样式
         style = ttk.Style()
-        style.configure("Treeview", font=("Microsoft YaHei", self.current_font_size), rowheight=max(int(self.current_font_size * 2.2), self.current_font_size + 10))
-        style.configure("Treeview.Heading", font=("Microsoft YaHei", 11, "bold"))
+        style.configure("Treeview", font=("Microsoft YaHei UI", self.current_font_size, "bold"), rowheight=max(int(self.current_font_size * 2.2), self.current_font_size + 10))
+        style.configure("Treeview.Heading", font=("Microsoft YaHei UI", 11, "bold"))
         
         # 插入数据
         sorted_months = sorted(monthly_data.keys(), reverse=True)
@@ -13040,7 +13098,7 @@ class OCRApp:
         tree.tag_configure("accurate", background="#E3F2FD")
         tree.tag_configure("basic", background="#FFF3E0")
         tree.tag_configure("general", background="#F3E5F5")
-        tree.tag_configure("total", background="#E8F5E9", font=("Microsoft YaHei", self.current_font_size, "bold"))
+        tree.tag_configure("total", background="#E8F5E9", font=("Microsoft YaHei UI", self.current_font_size, "bold"))
     
     def export_results(self):
         """导出识别结果（直接保存）"""
@@ -13280,20 +13338,20 @@ class OCRApp:
         header = tk.Frame(page, bg='white')
         header.pack(fill=tk.X, padx=24, pady=(18, 4))
         tk.Label(header, text='📸 截图拼接预览', bg='white', fg='#111827',
-                 font=('Microsoft YaHei', 14, 'bold')).pack(side=tk.LEFT)
+                 font=('Microsoft YaHei UI', 14, 'bold')).pack(side=tk.LEFT)
 
         info_row = tk.Frame(page, bg='white')
         info_row.pack(fill=tk.X, padx=24)
         tk.Label(info_row,
                  text=f'拼接结果：{w}×{h} px，共 {len(captured_shots)} 张截图（从右到左）',
-                 bg='white', fg='#6B7280', font=('Microsoft YaHei', 9)).pack(side=tk.LEFT)
+                 bg='white', fg='#6B7280', font=('Microsoft YaHei UI', 9, 'bold')).pack(side=tk.LEFT)
 
         if warnings:
             warn_frame = tk.Frame(page, bg='#FFF3E0')
             warn_frame.pack(fill=tk.X, padx=24, pady=(6, 0))
             for msg in warnings:
                 tk.Label(warn_frame, text=msg, bg='#FFF3E0', fg='#E65100',
-                         font=('Microsoft YaHei', 9)).pack(anchor=tk.W, padx=8, pady=2)
+                         font=('Microsoft YaHei UI', 9, 'bold')).pack(anchor=tk.W, padx=8, pady=2)
 
         canvas_frame = tk.Frame(page, bg='white')
         canvas_frame.pack(fill=tk.BOTH, expand=True, padx=24, pady=10)
@@ -13338,12 +13396,12 @@ class OCRApp:
         canvas_p.bind('<MouseWheel>', _on_wheel)
 
         tk.Label(page, text='💡 滚轮缩放', bg='white', fg='#9CA3AF',
-                 font=('Microsoft YaHei', 8)).pack(pady=(0, 4))
+                 font=('Microsoft YaHei UI', 8, 'bold')).pack(pady=(0, 4))
 
         mode_row = tk.Frame(page, bg='white')
         mode_row.pack(pady=(0, 4))
         tk.Label(mode_row, text='识别模式：', bg='white', fg='#374151',
-                 font=('Microsoft YaHei', 9)).pack(side=tk.LEFT)
+                 font=('Microsoft YaHei UI', 9, 'bold')).pack(side=tk.LEFT)
         shot_mode = [self.preview_ocr_defaults.get('screenshot',
             self._selected_ocr_mode.get() if hasattr(self, '_selected_ocr_mode') else 'general')]
         mode_btns_local = {}
@@ -13352,7 +13410,7 @@ class OCRApp:
             b = tk.Button(mode_row, text=text,
                           bg='white', fg='#9CA3AF' if not key else '#374151',
                           relief='flat', highlightthickness=1, highlightbackground='#E5E7EB',
-                          font=('Microsoft YaHei', 8), padx=8, pady=4,
+                          font=('Microsoft YaHei UI', 8, 'bold'), padx=8, pady=4,
                           cursor='hand2' if key else 'arrow',
                           state=tk.NORMAL if key else tk.DISABLED)
             b.pack(side=tk.LEFT, padx=(0, 4))
@@ -13405,16 +13463,16 @@ class OCRApp:
 
         if retake_fn:
             tk.Button(btn_frame, text='重新截图', command=retake_fn,
-                      bg='#FF9800', fg='white', font=('Microsoft YaHei', 10),
+                      bg='#FF9800', fg='white', font=('Microsoft YaHei UI', 10, 'bold'),
                       padx=18, pady=8).pack(side=tk.LEFT, padx=6)
         tk.Button(btn_frame, text='导入识别', command=confirm_ocr,
-                  bg='#4CAF50', fg='white', font=('Microsoft YaHei', 10),
+                  bg='#4CAF50', fg='white', font=('Microsoft YaHei UI', 10, 'bold'),
                   padx=18, pady=8).pack(side=tk.LEFT, padx=6)
         tk.Button(btn_frame, text='保存图片', command=save_merged,
-                  bg='#1A6FD4', fg='white', font=('Microsoft YaHei', 10),
+                  bg='#1A6FD4', fg='white', font=('Microsoft YaHei UI', 10, 'bold'),
                   padx=18, pady=8).pack(side=tk.LEFT, padx=6)
         tk.Button(btn_frame, text='取消', command=lambda: self._nav_to('OCR识别'),
-                  bg='#757575', fg='white', font=('Microsoft YaHei', 10),
+                  bg='#757575', fg='white', font=('Microsoft YaHei UI', 10, 'bold'),
                   padx=18, pady=8).pack(side=tk.LEFT, padx=6)
 
     def start_screenshot_capture(self):
@@ -13453,7 +13511,7 @@ class OCRApp:
             count_label = tk.Label(hint_win,
                 text=f'框选第 {len(captured_shots)+1} 张 | 空格=暂停移动 | Enter=完成 | Esc=取消',
                 bg='#1976D2', fg='white',
-                font=('Microsoft YaHei', 13, 'bold'),
+                font=('Microsoft YaHei UI', 13, 'bold'),
                 padx=12, pady=6)
             count_label.pack()
 
@@ -13692,16 +13750,16 @@ class OCRApp:
             title_frame = tk.Frame(crop_window, bg="#FF9800")
             title_frame.pack(fill=tk.X)
             
-            tk.Label(title_frame, text="✂️ 裁剪并拼接", font=("Arial", 14, "bold"),
+            tk.Label(title_frame, text="✂️ 裁剪并拼接", font=("Microsoft YaHei UI", 14, "bold"),
                     bg="#FF9800", fg="white", pady=8).pack(side=tk.LEFT, padx=20)
             
             tk.Label(title_frame, text="💡 左键框选 | 右键删除 | 滚轮缩放 | 中键拖动 | Ctrl+0适合屏幕", 
-                    font=("Arial", 10), bg="#FF9800", fg="white", pady=8).pack(side=tk.RIGHT, padx=20)
+                    font=("Microsoft YaHei UI", 10, "bold"), bg="#FF9800", fg="white", pady=8).pack(side=tk.RIGHT, padx=20)
             
             nav_frame = tk.Frame(crop_window)
             nav_frame.pack(fill=tk.X, padx=20, pady=8)
             
-            image_label = tk.Label(nav_frame, text="", font=("Arial", 11, "bold"), fg="blue")
+            image_label = tk.Label(nav_frame, text="", font=("Microsoft YaHei UI", 11, "bold"), fg="blue")
             image_label.pack(side=tk.LEFT)
             
             canvas_frame = tk.Frame(crop_window)
@@ -13721,14 +13779,14 @@ class OCRApp:
             h_scrollbar.config(command=canvas.xview)
             v_scrollbar.config(command=canvas.yview)
             
-            status_label = tk.Label(crop_window, text="", fg="blue", font=("Arial", 10))
+            status_label = tk.Label(crop_window, text="", fg="blue", font=("Microsoft YaHei UI", 10, "bold"))
             status_label.pack(pady=5)
             
             merge_info_frame = tk.Frame(crop_window, bg="#f0f0f0", relief=tk.RIDGE, bd=2)
             merge_info_frame.pack(fill=tk.X, padx=20, pady=5)
             
             merge_info_label = tk.Label(merge_info_frame, text="", bg="#f0f0f0", 
-                                       font=("Arial", 10, "bold"), fg="#333")
+                                       font=("Microsoft YaHei UI", 10, "bold"), fg="#333")
             merge_info_label.pack(pady=8)
             
             def update_status():
@@ -13810,14 +13868,14 @@ class OCRApp:
                     canvas.photo1 = photo1
                     canvas.create_image(0, 0, anchor=tk.NW, image=photo1, tags="image1")
                     canvas.create_text(final_width1 // 2, 20, text=f"图1: {img1_data['name']}", 
-                                     font=("Arial", 12, "bold"), fill="yellow", tags="label1")
+                                     font=("Microsoft YaHei UI", 12, "bold"), fill="yellow", tags="label1")
                     
                     x_offset = final_width1 + gap
                     photo2 = ImageTk.PhotoImage(display_img2)
                     canvas.photo2 = photo2
                     canvas.create_image(x_offset, 0, anchor=tk.NW, image=photo2, tags="image2")
                     canvas.create_text(x_offset + final_width2 // 2, 20, text=f"图2: {img2_data['name']}", 
-                                     font=("Arial", 12, "bold"), fill="yellow", tags="label2")
+                                     font=("Microsoft YaHei UI", 12, "bold"), fill="yellow", tags="label2")
                     
                     canvas.image_info = [
                         {'x_offset': 0, 'scale': final_scale1, 'data': img1_data},
@@ -13839,7 +13897,7 @@ class OCRApp:
                             
                             rect_id = canvas.create_rectangle(x1, y1, x2, y2, outline="red", width=2, tags="rect")
                             text_id = canvas.create_text((x1+x2)/2, (y1+y2)/2, text=str(area_counter),
-                                                        font=("Arial", 20, "bold"), fill="red", tags="text")
+                                                        font=("Microsoft YaHei UI", 20, "bold"), fill="red", tags="text")
                             area['rect_id'] = rect_id
                             area['text_id'] = text_id
                             area['display_coords'] = (x1, y1, x2, y2)
@@ -13875,7 +13933,7 @@ class OCRApp:
                         
                         rect_id = canvas.create_rectangle(x1, y1, x2, y2, outline="red", width=2, tags="rect")
                         text_id = canvas.create_text((x1+x2)/2, (y1+y2)/2, text=str(i+1),
-                                                    font=("Arial", 20, "bold"), fill="red", tags="text")
+                                                    font=("Microsoft YaHei UI", 20, "bold"), fill="red", tags="text")
                         area['rect_id'] = rect_id
                         area['text_id'] = text_id
                         area['display_coords'] = (x1, y1, x2, y2)
@@ -13949,7 +14007,7 @@ class OCRApp:
                             label_y = (y1 + y2) / 2
                             text_id = canvas.create_text(label_x, label_y, 
                                                          text=str(total_areas + 1),
-                                                         font=("Arial", 20, "bold"), fill="red")
+                                                         font=("Microsoft YaHei UI", 20, "bold"), fill="red")
                             area['text_id'] = text_id
                             
                             update_status()
@@ -14210,40 +14268,40 @@ class OCRApp:
                     display_current_image()
             
             tk.Button(btn_frame, text="🔍+", command=zoom_in,
-                     bg="#009688", fg="white", font=("Arial", 11),
+                     bg="#009688", fg="white", font=("Microsoft YaHei UI", 11, "bold"),
                      padx=15, pady=10).pack(side=tk.LEFT, padx=3)
             
             tk.Button(btn_frame, text="🔍-", command=zoom_out,
-                     bg="#009688", fg="white", font=("Arial", 11),
+                     bg="#009688", fg="white", font=("Microsoft YaHei UI", 11, "bold"),
                      padx=15, pady=10).pack(side=tk.LEFT, padx=3)
             
             tk.Button(btn_frame, text="重置", command=zoom_reset,
-                     bg="#009688", fg="white", font=("Arial", 11),
+                     bg="#009688", fg="white", font=("Microsoft YaHei UI", 11, "bold"),
                      padx=15, pady=10).pack(side=tk.LEFT, padx=3)
             
             tk.Button(btn_frame, text="📐 适合屏幕", command=fit_screen,
-                     bg="#009688", fg="white", font=("Arial", 11),
+                     bg="#009688", fg="white", font=("Microsoft YaHei UI", 11, "bold"),
                      padx=15, pady=10).pack(side=tk.LEFT, padx=3)
             
             tk.Frame(btn_frame, width=2, bg="gray").pack(side=tk.LEFT, padx=10, fill=tk.Y)
             
             if len(images_data) > 1:
                 tk.Button(btn_frame, text="◀ 上一张", command=prev_image,
-                         bg="#2196F3", fg="white", font=("Arial", 11),
+                         bg="#2196F3", fg="white", font=("Microsoft YaHei UI", 11, "bold"),
                          padx=20, pady=10).pack(side=tk.LEFT, padx=5)
                 
                 tk.Button(btn_frame, text="下一张 ▶", command=next_image,
-                         bg="#2196F3", fg="white", font=("Arial", 11),
+                         bg="#2196F3", fg="white", font=("Microsoft YaHei UI", 11, "bold"),
                          padx=20, pady=10).pack(side=tk.LEFT, padx=5)
                 
                 tk.Frame(btn_frame, width=2, bg="gray").pack(side=tk.LEFT, padx=10, fill=tk.Y)
             
             tk.Button(btn_frame, text="✓ 确认拼接", command=do_crop_and_merge,
-                     bg="#4CAF50", fg="white", font=("Arial", 12, "bold"),
+                     bg="#4CAF50", fg="white", font=("Microsoft YaHei UI", 12, "bold"),
                      padx=40, pady=12).pack(side=tk.LEFT, padx=10)
             
             tk.Button(btn_frame, text="✗ 取消", command=crop_window.destroy,
-                     bg="#757575", fg="white", font=("Arial", 12),
+                     bg="#757575", fg="white", font=("Microsoft YaHei UI", 12, "bold"),
                      padx=40, pady=12).pack(side=tk.LEFT, padx=10)
         
         except Exception as e:
@@ -14255,28 +14313,28 @@ class OCRApp:
         win.configure(bg="#F8FAFC")
         win.minsize(980, 820)
 
-        ui_font = ("Microsoft YaHei", 9)
-        title_font = ("Microsoft YaHei", 15, "bold")
-        label_font = ("Microsoft YaHei", 9, "bold")
+        ui_font = ("Microsoft YaHei UI", 9, "bold")
+        title_font = ("Microsoft YaHei UI", 15, "bold")
+        label_font = ("Microsoft YaHei UI", 9, "bold")
         muted = "#64748B"
         border = "#DDE3EA"
         primary = "#2563EB"
         current_prefix = tk.StringVar(value="")
 
         style = ttk.Style(win)
-        style.configure("FontRule.Treeview", font=("Microsoft YaHei", 9), rowheight=34, borderwidth=0)
-        style.configure("FontRule.Treeview.Heading", font=("Microsoft YaHei", 9, "bold"))
+        style.configure("FontRule.Treeview", font=("Microsoft YaHei UI", 9, "bold"), rowheight=34, borderwidth=0)
+        style.configure("FontRule.Treeview.Heading", font=("Microsoft YaHei UI", 9, "bold"))
 
         def button(parent, text, command, bg="#FFFFFF", fg="#111827", width=None):
             return tk.Button(parent, text=text, command=command, bg=bg, fg=fg,
                              activebackground=bg, activeforeground=fg,
                              relief=tk.FLAT, bd=0, padx=12, pady=7, width=width,
-                             font=("Microsoft YaHei", 9), cursor="hand2")
+                             font=("Microsoft YaHei UI", 9, "bold"), cursor="hand2")
 
         header = tk.Frame(win, bg="#F8FAFC")
         header.pack(fill=tk.X, padx=16, pady=(12, 8))
         icon = tk.Label(header, text="A", bg="#635BFF", fg="white",
-                        font=("Microsoft YaHei", 15, "bold"), width=2)
+                        font=("Microsoft YaHei UI", 15, "bold"), width=2)
         icon.pack(side=tk.LEFT, padx=(0, 12))
         title_box = tk.Frame(header, bg="#F8FAFC")
         title_box.pack(side=tk.LEFT)
@@ -14324,7 +14382,7 @@ class OCRApp:
         rules_tree.tag_configure("disabled", foreground="#94A3B8")
 
         tk.Label(left, text="优先级数字越小，优先级越高", bg="#F8FAFC", fg=muted,
-                 font=("Microsoft YaHei", 8)).pack(anchor=tk.W, pady=(8, 0))
+                 font=("Microsoft YaHei UI", 8, "bold")).pack(anchor=tk.W, pady=(8, 0))
 
         form_title = tk.Label(right, text="编辑当前规则", bg="#F8FAFC", fg="#111827",
                               font=label_font)
@@ -14356,16 +14414,16 @@ class OCRApp:
         prefix_entry = tk.Entry(prefix_frame, textvariable=prefix_var, font=ui_font, relief=tk.SOLID, bd=1)
         prefix_entry.pack(fill=tk.X, pady=(4, 3), ipady=4)
         tk.Label(prefix_frame, text="例：输入“德”表示以“德”开头的项目",
-                 bg="#F8FAFC", fg=muted, font=("Microsoft YaHei", 8)).pack(anchor=tk.W)
+                 bg="#F8FAFC", fg=muted, font=("Microsoft YaHei UI", 8, "bold")).pack(anchor=tk.W)
 
         preview_frame = tk.LabelFrame(right, text="实时预览", bg="#F8FAFC", fg="#111827",
                                       font=label_font, bd=1, relief=tk.SOLID, padx=12, pady=10)
         preview_frame.pack(fill=tk.X, pady=(0, 8))
         preview_label = tk.Label(preview_frame, text="", bg="#FFFFFF", fg="#FF0000",
-                                 font=("Microsoft YaHei", 22), anchor=tk.CENTER, height=1)
+                                 font=("Microsoft YaHei UI", 22, "bold"), anchor=tk.CENTER, height=1)
         preview_label.pack(fill=tk.X)
         tk.Label(preview_frame, text="当前设置的效果预览", bg="#F8FAFC", fg=muted,
-                 font=("Microsoft YaHei", 8)).pack(anchor=tk.W, pady=(6, 0))
+                 font=("Microsoft YaHei UI", 8, "bold")).pack(anchor=tk.W, pady=(6, 0))
 
         font_frame = section(right, "字体设置")
         tk.Label(font_frame, text="字体", bg="#F8FAFC", font=ui_font).grid(row=0, column=0, sticky=tk.W, pady=3)
@@ -14435,7 +14493,7 @@ class OCRApp:
         tk.Entry(test_inner, textvariable=test_text_var, font=ui_font, relief=tk.SOLID, bd=1,
                  width=28).grid(row=1, column=1, sticky=tk.W, padx=8, ipady=4)
         tk.Label(test_inner, text="预览效果：", bg="#FFFFFF", font=ui_font).grid(row=1, column=2, sticky=tk.W, padx=(60, 8))
-        bottom_preview = tk.Label(test_inner, text="", bg="#FFFFFF", fg="#FF0000", font=("Microsoft YaHei", 18))
+        bottom_preview = tk.Label(test_inner, text="", bg="#FFFFFF", fg="#FF0000", font=("Microsoft YaHei UI", 18, "bold"))
         bottom_preview.grid(row=1, column=3, sticky=tk.W)
 
         footer = tk.Frame(win, bg="#F8FAFC")
@@ -14452,9 +14510,9 @@ class OCRApp:
                 size = int(font_size_var.get() or 12)
             except ValueError:
                 size = 12
-            family = font_family_var.get() or "Microsoft YaHei"
+            family = font_family_var.get() or "Microsoft YaHei UI"
             if family.startswith("---"):
-                family = "Microsoft YaHei"
+                family = "Microsoft YaHei UI"
             weight = normalize_weight(font_weight_var.get())
             font_parts = [family, size]
             if weight == "bold":
@@ -14474,7 +14532,7 @@ class OCRApp:
         def set_form_defaults():
             current_prefix.set("")
             prefix_var.set("")
-            font_family_var.set("Microsoft YaHei")
+            font_family_var.set("Microsoft YaHei UI")
             font_size_var.set("18")
             font_weight_var.set("normal")
             color_var.set("#FF0000")
@@ -14492,7 +14550,7 @@ class OCRApp:
             style_data = self.font_style_rules[prefix]
             current_prefix.set(prefix)
             prefix_var.set(prefix)
-            font_family_var.set(style_data.get("font_family", "Microsoft YaHei"))
+            font_family_var.set(style_data.get("font_family", "Microsoft YaHei UI"))
             font_size_var.set(str(style_data.get("font_size", 18)))
             font_weight_var.set(style_data.get("font_weight", "normal"))
             color_var.set(style_data.get("color", "#FF0000"))
@@ -14518,7 +14576,7 @@ class OCRApp:
                 weight = style_data.get("font_weight", "normal")
                 rules_tree.insert("", tk.END, iid=rule_prefix,
                                   values=(rule_prefix,
-                                          style_data.get("font_family", "Microsoft YaHei"),
+                                          style_data.get("font_family", "Microsoft YaHei UI"),
                                           style_data.get("font_size", 18),
                                           weight,
                                           style_data.get("color", "#000000"),
@@ -14655,7 +14713,7 @@ class OCRApp:
         editor_window = self.create_popup_window(self.root, title, window_name, 500, 450)
         
         tk.Label(editor_window, text=title, 
-                font=("Arial", 12, "bold")).pack(pady=15)
+                font=("Microsoft YaHei UI", 12, "bold")).pack(pady=15)
         
         # 前缀设置
         prefix_frame = tk.Frame(editor_window, padx=20)
@@ -14663,10 +14721,10 @@ class OCRApp:
         
         tk.Label(prefix_frame, text="前缀字符：").pack(anchor=tk.W)
         prefix_var = tk.StringVar(value=prefix if is_edit else "")
-        prefix_entry = tk.Entry(prefix_frame, textvariable=prefix_var, font=("Arial", 11), width=40)
+        prefix_entry = tk.Entry(prefix_frame, textvariable=prefix_var, font=("Microsoft YaHei UI", 11, "bold"), width=40)
         prefix_entry.pack(fill=tk.X, pady=5)
         tk.Label(prefix_frame, text="例：输入'a'表示以'a'开头的项目", 
-                font=("Arial", 9), fg="gray").pack(anchor=tk.W)
+                font=("Microsoft YaHei UI", 9, "bold"), fg="gray").pack(anchor=tk.W)
         
         # 字体设置
         font_frame = tk.LabelFrame(editor_window, text="字体设置", padx=10, pady=10)
@@ -14689,7 +14747,7 @@ class OCRApp:
             selected = font_family_var.get()
             if selected.startswith("---"):
                 # 如果选择了分隔符，恢复到之前的选择
-                font_family_combo.set(font_family_var.get() if font_family_var.get() not in available_fonts[:10] else "Microsoft YaHei")
+                font_family_combo.set(font_family_var.get() if font_family_var.get() not in available_fonts[:10] else "Microsoft YaHei UI")
         
         font_family_combo.bind("<<ComboboxSelected>>", on_font_select)
         
@@ -14733,7 +14791,7 @@ class OCRApp:
                 preview_label.config(bg=hex_color)
             btn = tk.Button(btn_row, text=name, bg=hex_color,
                            fg="white" if hex_color not in ("#FF8C00", "#00AA00") else "black",
-                           font=("Arial", 9), padx=6, pady=3,
+                           font=("Microsoft YaHei UI", 9, "bold"), padx=6, pady=3,
                            relief=tk.RAISED, bd=1, command=on_click)
             btn.pack(side=tk.LEFT, padx=2)
 
@@ -14744,10 +14802,10 @@ class OCRApp:
         input_row = tk.Frame(color_frame)
         input_row.pack(anchor=tk.W, pady=3)
 
-        color_entry = tk.Entry(input_row, textvariable=color_var, font=("Arial", 11), width=12)
+        color_entry = tk.Entry(input_row, textvariable=color_var, font=("Microsoft YaHei UI", 11, "bold"), width=12)
         color_entry.pack(side=tk.LEFT)
 
-        preview_label = tk.Label(input_row, text="  预览  ", font=("Arial", 10),
+        preview_label = tk.Label(input_row, text="  预览  ", font=("Microsoft YaHei UI", 10, "bold"),
                                  relief=tk.SUNKEN, bd=1, padx=8, pady=3)
         preview_label.pack(side=tk.LEFT, padx=8)
 
@@ -14780,7 +14838,7 @@ class OCRApp:
                                    state="readonly", width=25)
         group_combo.grid(row=0, column=1, sticky=tk.W, padx=10)
         tk.Label(group_frame, text="auto = 红色→A，其他→B", 
-                font=("Arial", 9), fg="gray").grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=3)
+                font=("Microsoft YaHei UI", 9, "bold"), fg="gray").grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=3)
         
         # 描述
         desc_frame = tk.Frame(editor_window, padx=20)
@@ -14788,13 +14846,13 @@ class OCRApp:
         
         tk.Label(desc_frame, text="描述（可选）：").pack(anchor=tk.W)
         desc_var = tk.StringVar()
-        desc_entry = tk.Entry(desc_frame, textvariable=desc_var, font=("Arial", 11), width=40)
+        desc_entry = tk.Entry(desc_frame, textvariable=desc_var, font=("Microsoft YaHei UI", 11, "bold"), width=40)
         desc_entry.pack(fill=tk.X, pady=5)
         
         # 如果是编辑模式，加载现有值
         if is_edit and prefix in self.font_style_rules:
             style = self.font_style_rules[prefix]
-            font_family_var.set(style.get('font_family', 'Microsoft YaHei'))
+            font_family_var.set(style.get('font_family', 'Microsoft YaHei UI'))
             font_size_var.set(str(style.get('font_size', 12)))
             font_weight_var.set(style.get('font_weight', 'normal'))
             color_var.set(style.get('color', '#000000'))
@@ -14803,7 +14861,7 @@ class OCRApp:
             target_group_var.set(tg if tg in ('A', 'B', 'C', 'D') else 'auto（根据颜色自动判断）')
         else:
             # 设置默认值
-            font_family_var.set('Microsoft YaHei')
+            font_family_var.set('Microsoft YaHei UI')
             font_size_var.set('12')
             font_weight_var.set('normal')
             color_var.set('#FF0000')
@@ -14873,7 +14931,7 @@ class OCRApp:
             tooltip.wm_overrideredirect(True)
             tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
             label = tk.Label(tooltip, text=text, background="lightyellow", 
-                           relief="solid", borderwidth=1, font=("Arial", 9))
+                           relief="solid", borderwidth=1, font=("Microsoft YaHei UI", 9, "bold"))
             label.pack()
             widget.tooltip = tooltip
         
