@@ -7285,7 +7285,10 @@ class RulesPage(QWidget):
             for column, suffix in enumerate(("min_width", "max_width", "min_height", "max_height"), start=1):
                 key = f"{mode}_{suffix}"
                 spin = QSpinBox()
-                spin.setRange(0, 100000)
+                if "width" in suffix:
+                    spin.setRange(0, 8192)
+                else:
+                    spin.setRange(0, 100000)
                 spin.setValue(int(limits[key]))
                 self.inputs[key] = spin
                 form.addWidget(spin, row, column)
