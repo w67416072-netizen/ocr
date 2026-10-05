@@ -362,14 +362,14 @@ class Repository:
     """Compatibility wrapper around the existing JSON store and schemas."""
 
     DEFAULT_LIMITS = {
-        "accurate_min_width": 3500,
-        "accurate_min_height": 4000,
-        "accurate_max_width": 15000,
-        "accurate_max_height": 15000,
+        "accurate_min_width": 0,
+        "accurate_min_height": 0,
+        "accurate_max_width": 8192,
+        "accurate_max_height": 8192,
         "basic_min_width": 0,
         "basic_min_height": 0,
-        "basic_max_width": 8100,
-        "basic_max_height": 3000,
+        "basic_max_width": 8192,
+        "basic_max_height": 8192,
         "general_min_width": 0,
         "general_min_height": 0,
         "general_max_width": 8192,

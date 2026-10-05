@@ -5924,9 +5924,10 @@ class HistoryPage(QWidget):
         top.addWidget(delete_button)
         layout.addLayout(top)
         self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(["时间", "类型", "书名", "页码", "文件", "行数"])
+        self.table.setHorizontalHeaderLabels(["时间", "类型", "书名", "页码", "文件名", "行数"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.doubleClicked.connect(self.show_detail)
@@ -5969,12 +5970,22 @@ class HistoryPage(QWidget):
         for row, item in enumerate(self.items):
             values = [
                 item.get("timestamp", ""), item.get("type", ""), item.get("book_name", ""),
-                item.get("page_no", ""), item.get("file_count", ""), item.get("total_lines", ""),
+                item.get("page_no", ""), self._item_file_names(item), item.get("total_lines", ""),
             ]
             for column, value in enumerate(values):
                 cell = QTableWidgetItem(str(value))
                 cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.table.setItem(row, column, cell)
+
+    @staticmethod
+    def _item_file_names(item: dict[str, Any]) -> str:
+        """Show the source image name(s), including legacy history records."""
+        names = [
+            str(file_data.get("name", "")).strip()
+            for file_data in item.get("files", []) or []
+            if isinstance(file_data, dict) and str(file_data.get("name", "")).strip()
+        ]
+        return "、".join(names) or "—"
 
     def _sync_day_navigation(self) -> None:
         if not self.day_keys:
