@@ -5912,7 +5912,10 @@ class HistoryPage(QWidget):
         self.history_date_input.setCalendarPopup(True)
         self.history_date_input.setFixedWidth(118)
         self.history_date_input.setToolTip("可直接输入日期，或从日历中选择日期")
+        self.history_date_input.setKeyboardTracking(False)
         self.history_date_input.dateChanged.connect(self.select_day_from_input)
+        self.history_date_input.editingFinished.connect(self.select_day_from_input)
+        self.history_date_input.calendarWidget().activated.connect(self.select_day_from_input)
         self.history_day_label = muted_label("")
         self.history_day_label.setMinimumWidth(172)
         self.history_day_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -5952,6 +5955,7 @@ class HistoryPage(QWidget):
         self.items: list[dict[str, Any]] = []
         self.day_keys: list[str] = []
         self.current_day = ""
+        self._date_selection_pending = False
         self.refresh()
 
     def refresh(self) -> None:
@@ -6030,8 +6034,16 @@ class HistoryPage(QWidget):
         self.history_date_input.setDate(date)
         self.history_date_input.blockSignals(previous)
 
-    def select_day_from_input(self, date: QDate) -> None:
-        self.current_day = date.toString("yyyy-MM-dd")
+    def select_day_from_input(self, *_args) -> None:
+        """Apply the final date once QDateEdit has committed its value."""
+        if self._date_selection_pending:
+            return
+        self._date_selection_pending = True
+        QTimer.singleShot(0, self._apply_selected_date)
+
+    def _apply_selected_date(self) -> None:
+        self._date_selection_pending = False
+        self.current_day = self.history_date_input.date().toString("yyyy-MM-dd")
         self.apply_filter()
 
     def change_day(self, offset: int) -> None:
@@ -6789,7 +6801,10 @@ class GalleryPage(QWidget):
         self.gallery_date_input.setCalendarPopup(True)
         self.gallery_date_input.setFixedWidth(118)
         self.gallery_date_input.setToolTip("可直接输入日期，或从日历中选择日期")
+        self.gallery_date_input.setKeyboardTracking(False)
         self.gallery_date_input.dateChanged.connect(self.select_day_from_input)
+        self.gallery_date_input.editingFinished.connect(self.select_day_from_input)
+        self.gallery_date_input.calendarWidget().activated.connect(self.select_day_from_input)
         self.gallery_day_label = muted_label("")
         self.gallery_day_label.setMinimumWidth(172)
         self.gallery_day_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -6855,6 +6870,7 @@ class GalleryPage(QWidget):
         self.records: list[dict[str, Any]] = []
         self.day_keys: list[str] = []
         self.current_day = ""
+        self._date_selection_pending = False
         self._stale_count = 0
         self._record_limit = 30
         self.refresh()
@@ -6984,8 +7000,16 @@ class GalleryPage(QWidget):
         self.gallery_date_input.setDate(date)
         self.gallery_date_input.blockSignals(previous)
 
-    def select_day_from_input(self, date: QDate) -> None:
-        self.current_day = date.toString("yyyy-MM-dd")
+    def select_day_from_input(self, *_args) -> None:
+        """Apply the final date once QDateEdit has committed its value."""
+        if self._date_selection_pending:
+            return
+        self._date_selection_pending = True
+        QTimer.singleShot(0, self._apply_selected_date)
+
+    def _apply_selected_date(self) -> None:
+        self._date_selection_pending = False
+        self.current_day = self.gallery_date_input.date().toString("yyyy-MM-dd")
         self.apply_day_page()
 
     def change_day(self, offset: int) -> None:
