@@ -26,7 +26,7 @@ from typing import Any
 
 from PIL import Image, ImageDraw
 from PySide6.QtCore import (
-    Qt, Signal, QSize, QThreadPool, QUrl, QRect, QPoint, QTimer, QItemSelectionModel,
+    Qt, Signal, QSize, QThreadPool, QUrl, QRect, QPoint, QTimer, QDate, QItemSelectionModel,
     QPropertyAnimation, QEvent, QObject,
 )
 from PySide6.QtGui import (
@@ -36,7 +36,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QDialog, QFileDialog, QFormLayout, QFrame,
     QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QAbstractItemView,
-    QLineEdit, QMainWindow, QMessageBox, QPushButton, QRadioButton, QScrollArea,
+    QLineEdit, QDateEdit, QMainWindow, QMessageBox, QPushButton, QRadioButton, QScrollArea,
     QCheckBox,
     QSizePolicy, QSpinBox, QDoubleSpinBox, QStackedWidget, QTableWidget, QTableWidgetItem,
     QTextEdit, QVBoxLayout, QWidget, QInputDialog, QComboBox,
@@ -135,11 +135,11 @@ QPushButton#nav:checked {{
     background: #FFF7E3; color: #30343A; border-left: 3px solid {YELLOW};
     padding-left: 13px;
 }}
-QLineEdit, QSpinBox, QDoubleSpinBox, QTextEdit, QTableWidget {{
+QLineEdit, QDateEdit, QSpinBox, QDoubleSpinBox, QTextEdit, QTableWidget {{
     background: #FFFFFF; border: 1px solid #E2E5E9; border-radius: 7px;
     selection-background-color: #FFE58A;
 }}
-QLineEdit, QSpinBox, QDoubleSpinBox {{ min-height: 34px; padding: 0 9px; }}
+QLineEdit, QDateEdit, QSpinBox, QDoubleSpinBox {{ min-height: 34px; padding: 0 9px; }}
 /* 数字框仅保留直接输入，彻底移除右侧的上下微调按钮。 */
 QSpinBox, QDoubleSpinBox {{
     qproperty-buttonSymbols: NoButtons;
@@ -327,6 +327,15 @@ def ordered_record_days(records: list[dict[str, Any]], timestamp_key: str) -> li
     days = {record_day(item.get(timestamp_key, "")) for item in records}
     dated_days = sorted((day for day in days if day != "未标注日期"), reverse=True)
     return dated_days + (["未标注日期"] if "未标注日期" in days else [])
+
+
+def adjacent_record_day(day_keys: list[str], current_day: str, offset: int) -> str:
+    """Return the nearest record day before or after a selected calendar day."""
+    dated_days = sorted(day for day in day_keys if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day))
+    if offset < 0:  # "较新一天": the nearest later date that has records.
+        return next((day for day in dated_days if day > current_day), "")
+    # "较早一天": the nearest earlier date that has records.
+    return next((day for day in reversed(dated_days) if day < current_day), "")
 
 
 class CollapsibleSection(QFrame):
@@ -5898,12 +5907,19 @@ class HistoryPage(QWidget):
         top.addStretch()
         self.history_newer_day = QPushButton("较新一天")
         self.history_newer_day.clicked.connect(lambda: self.change_day(-1))
+        self.history_date_input = QDateEdit()
+        self.history_date_input.setDisplayFormat("yyyy-MM-dd")
+        self.history_date_input.setCalendarPopup(True)
+        self.history_date_input.setFixedWidth(118)
+        self.history_date_input.setToolTip("可直接输入日期，或从日历中选择日期")
+        self.history_date_input.dateChanged.connect(self.select_day_from_input)
         self.history_day_label = muted_label("")
         self.history_day_label.setMinimumWidth(172)
         self.history_day_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.history_older_day = QPushButton("较早一天")
         self.history_older_day.clicked.connect(lambda: self.change_day(1))
         top.addWidget(self.history_newer_day)
+        top.addWidget(self.history_date_input)
         top.addWidget(self.history_day_label)
         top.addWidget(self.history_older_day)
         refresh_button = QPushButton("刷新")
@@ -5959,7 +5975,7 @@ class HistoryPage(QWidget):
                 if query in haystack.lower():
                     filtered_items.append(item)
         self.day_keys = ordered_record_days(filtered_items, "timestamp")
-        if self.current_day not in self.day_keys:
+        if not self.current_day:
             self.current_day = self.day_keys[0] if self.day_keys else ""
         self.items = [
             item for item in filtered_items
@@ -5988,25 +6004,42 @@ class HistoryPage(QWidget):
         return "、".join(names) or "—"
 
     def _sync_day_navigation(self) -> None:
+        self._sync_date_input()
         if not self.day_keys:
-            self.history_day_label.setText("暂无记录")
+            self.history_day_label.setText(f"{self.current_day} · 0 条" if self.current_day else "暂无记录")
             self.history_newer_day.setEnabled(False)
             self.history_older_day.setEnabled(False)
+            return
+        if self.current_day not in self.day_keys:
+            self.history_day_label.setText(f"{self.current_day} · 0 条")
+            self.history_newer_day.setEnabled(bool(adjacent_record_day(self.day_keys, self.current_day, -1)))
+            self.history_older_day.setEnabled(bool(adjacent_record_day(self.day_keys, self.current_day, 1)))
             return
         index = self.day_keys.index(self.current_day)
         self.history_day_label.setText(
             f"{self.current_day} · {index + 1}/{len(self.day_keys)} 页 · {len(self.items)} 条"
         )
-        self.history_newer_day.setEnabled(index > 0)
-        self.history_older_day.setEnabled(index < len(self.day_keys) - 1)
+        self.history_newer_day.setEnabled(bool(adjacent_record_day(self.day_keys, self.current_day, -1)))
+        self.history_older_day.setEnabled(bool(adjacent_record_day(self.day_keys, self.current_day, 1)))
+
+    def _sync_date_input(self) -> None:
+        date = QDate.fromString(self.current_day, "yyyy-MM-dd")
+        if not date.isValid() or self.history_date_input.date() == date:
+            return
+        previous = self.history_date_input.blockSignals(True)
+        self.history_date_input.setDate(date)
+        self.history_date_input.blockSignals(previous)
+
+    def select_day_from_input(self, date: QDate) -> None:
+        self.current_day = date.toString("yyyy-MM-dd")
+        self.apply_filter()
 
     def change_day(self, offset: int) -> None:
-        if not self.day_keys or self.current_day not in self.day_keys:
+        target_day = adjacent_record_day(self.day_keys, self.current_day, offset)
+        if not target_day:
             return
-        index = max(0, min(len(self.day_keys) - 1, self.day_keys.index(self.current_day) + offset))
-        if self.current_day != self.day_keys[index]:
-            self.current_day = self.day_keys[index]
-            self.apply_filter()
+        self.current_day = target_day
+        self.apply_filter()
 
     def _item_text(self, item: dict[str, Any]) -> str:
         lines = [
@@ -6751,12 +6784,19 @@ class GalleryPage(QWidget):
         day_navigation = QHBoxLayout()
         self.gallery_newer_day = QPushButton("较新一天")
         self.gallery_newer_day.clicked.connect(lambda: self.change_day(-1))
+        self.gallery_date_input = QDateEdit()
+        self.gallery_date_input.setDisplayFormat("yyyy-MM-dd")
+        self.gallery_date_input.setCalendarPopup(True)
+        self.gallery_date_input.setFixedWidth(118)
+        self.gallery_date_input.setToolTip("可直接输入日期，或从日历中选择日期")
+        self.gallery_date_input.dateChanged.connect(self.select_day_from_input)
         self.gallery_day_label = muted_label("")
         self.gallery_day_label.setMinimumWidth(172)
         self.gallery_day_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.gallery_older_day = QPushButton("较早一天")
         self.gallery_older_day.clicked.connect(lambda: self.change_day(1))
         day_navigation.addWidget(self.gallery_newer_day)
+        day_navigation.addWidget(self.gallery_date_input)
         day_navigation.addWidget(self.gallery_day_label)
         day_navigation.addWidget(self.gallery_older_day)
         day_navigation.addStretch()
@@ -6877,7 +6917,7 @@ class GalleryPage(QWidget):
 
     def apply_day_page(self) -> None:
         self.day_keys = ordered_record_days(self.all_records, "updated_at")
-        if self.current_day not in self.day_keys:
+        if not self.current_day:
             self.current_day = self.day_keys[0] if self.day_keys else ""
         self.records = [
             record for record in self.all_records
@@ -6918,25 +6958,42 @@ class GalleryPage(QWidget):
             self.preview_info.setText("识别后的原图片仍需保存在原位置，才能在这里预览。")
 
     def _sync_day_navigation(self) -> None:
+        self._sync_date_input()
         if not self.day_keys:
-            self.gallery_day_label.setText("暂无图片")
+            self.gallery_day_label.setText(f"{self.current_day} · 0 张" if self.current_day else "暂无图片")
             self.gallery_newer_day.setEnabled(False)
             self.gallery_older_day.setEnabled(False)
+            return
+        if self.current_day not in self.day_keys:
+            self.gallery_day_label.setText(f"{self.current_day} · 0 张")
+            self.gallery_newer_day.setEnabled(bool(adjacent_record_day(self.day_keys, self.current_day, -1)))
+            self.gallery_older_day.setEnabled(bool(adjacent_record_day(self.day_keys, self.current_day, 1)))
             return
         index = self.day_keys.index(self.current_day)
         self.gallery_day_label.setText(
             f"{self.current_day} · {index + 1}/{len(self.day_keys)} 页 · {len(self.records)} 张"
         )
-        self.gallery_newer_day.setEnabled(index > 0)
-        self.gallery_older_day.setEnabled(index < len(self.day_keys) - 1)
+        self.gallery_newer_day.setEnabled(bool(adjacent_record_day(self.day_keys, self.current_day, -1)))
+        self.gallery_older_day.setEnabled(bool(adjacent_record_day(self.day_keys, self.current_day, 1)))
+
+    def _sync_date_input(self) -> None:
+        date = QDate.fromString(self.current_day, "yyyy-MM-dd")
+        if not date.isValid() or self.gallery_date_input.date() == date:
+            return
+        previous = self.gallery_date_input.blockSignals(True)
+        self.gallery_date_input.setDate(date)
+        self.gallery_date_input.blockSignals(previous)
+
+    def select_day_from_input(self, date: QDate) -> None:
+        self.current_day = date.toString("yyyy-MM-dd")
+        self.apply_day_page()
 
     def change_day(self, offset: int) -> None:
-        if not self.day_keys or self.current_day not in self.day_keys:
+        target_day = adjacent_record_day(self.day_keys, self.current_day, offset)
+        if not target_day:
             return
-        index = max(0, min(len(self.day_keys) - 1, self.day_keys.index(self.current_day) + offset))
-        if self.current_day != self.day_keys[index]:
-            self.current_day = self.day_keys[index]
-            self.apply_day_page()
+        self.current_day = target_day
+        self.apply_day_page()
 
     def show_selected(self) -> None:
         row = self.table.currentRow()
@@ -8225,6 +8282,34 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
 
+def notify_startup_launcher_ready() -> None:
+    """Tell the optional lightweight launcher that the Qt window is usable."""
+    event_name = os.environ.pop("OCR_LAUNCH_READY_EVENT", "")
+    if sys.platform != "win32" or not event_name:
+        return
+    kernel32 = ctypes.windll.kernel32
+    open_event = kernel32.OpenEventW
+    open_event.argtypes = (ctypes.c_uint32, ctypes.c_int, ctypes.c_wchar_p)
+    open_event.restype = ctypes.c_void_p
+    handle = open_event(0x0002, False, event_name)  # EVENT_MODIFY_STATE
+    if handle:
+        try:
+            kernel32.SetEvent(ctypes.c_void_p(handle))
+        finally:
+            kernel32.CloseHandle(ctypes.c_void_p(handle))
+
+
+def center_main_window(window: QMainWindow) -> None:
+    """Place the initial main window in the center of the active screen."""
+    screen = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
+    if screen is None:
+        return
+    available = screen.availableGeometry()
+    x = available.x() + max(0, (available.width() - window.width()) // 2)
+    y = available.y() + max(0, (available.height() - window.height()) // 2)
+    window.move(x, y)
+
+
 def main() -> int:
     if sys.platform == "win32":
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("local.ocr.classifier")
@@ -8234,8 +8319,12 @@ def main() -> int:
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
     window = MainWindow()
+    center_main_window(window)
     window.show()
     apply_windows_taskbar_icon(window)
+    # The launcher hides its opening image on the first event-loop turn, when
+    # the main window has been shown and is ready to accept user interaction.
+    QTimer.singleShot(0, notify_startup_launcher_ready)
     return app.exec()
 
 
