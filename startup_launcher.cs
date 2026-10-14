@@ -35,8 +35,8 @@ namespace OcrLauncher
             _previewMode = HasPreviewArgument(arguments);
 
             Title = "正在打开软件";
-            Width = 760;
-            Height = 480;
+            Width = 580;
+            Height = 400;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;
@@ -94,7 +94,7 @@ namespace OcrLauncher
                 {
                     LoadedBehavior = MediaState.Manual,
                     UnloadedBehavior = MediaState.Stop,
-                    Stretch = Stretch.Uniform,
+                    Stretch = Stretch.UniformToFill,
                     Volume = 0,
                     Source = new Uri(videoPath, UriKind.Absolute),
                 };
@@ -173,40 +173,18 @@ namespace OcrLauncher
 
         private void MatchWindowToVideoAspect()
         {
-            if (_video == null || _video.NaturalVideoWidth <= 0 || _video.NaturalVideoHeight <= 0)
-            {
-                return;
-            }
-
-            // Keep the launch window reasonably sized, while making its
-            // aspect ratio identical to the source video.  Stretch.Uniform
-            // can therefore show the entire frame without letterboxing.
-            double aspectRatio = (double)_video.NaturalVideoWidth / _video.NaturalVideoHeight;
+            // The launcher deliberately stays at the requested compact size.
+            // The video uses UniformToFill, so a 16:9 source has no black bars
+            // inside this 580 x 400 window.
+            const double preferredWidth = 580;
+            const double preferredHeight = 400;
             Rect workArea = SystemParameters.WorkArea;
-            double height = 480;
-            double width = height * aspectRatio;
-            double maximumWidth = Math.Max(320, workArea.Width * 0.90);
-            double maximumHeight = Math.Max(240, workArea.Height * 0.80);
-
-            if (width > maximumWidth)
-            {
-                width = maximumWidth;
-                height = width / aspectRatio;
-            }
-            if (height > maximumHeight)
-            {
-                height = maximumHeight;
-                width = height * aspectRatio;
-            }
-
-            Width = Math.Round(width);
-            Height = Math.Round(height);
-            // The window is still transparent at this point, so centering it
-            // again does not create a visible resize or move animation.
+            double scale = Math.Min(1.0, Math.Min(workArea.Width * 0.90 / preferredWidth, workArea.Height * 0.80 / preferredHeight));
+            Width = Math.Round(preferredWidth * scale);
+            Height = Math.Round(preferredHeight * scale);
             Left = workArea.Left + ((workArea.Width - Width) / 2);
             Top = workArea.Top + ((workArea.Height - Height) / 2);
         }
-
         private void RevealVideoOnNextRender()
         {
             // MediaOpened means Windows has accepted the source. Queue the
