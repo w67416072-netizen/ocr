@@ -31,6 +31,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import (
     QBrush, QColor, QDesktopServices, QFont, QPainter, QPen, QPixmap, QIcon, QImageReader,
+    QTextCharFormat,
     QKeySequence, QShortcut, QTextCursor, QTextTable, QCursor,
 )
 from PySide6.QtWidgets import (
@@ -336,6 +337,26 @@ def adjacent_record_day(day_keys: list[str], current_day: str, offset: int) -> s
         return next((day for day in dated_days if day > current_day), "")
     # "较早一天": the nearest earlier date that has records.
     return next((day for day in reversed(dated_days) if day < current_day), "")
+
+
+def mark_calendar_record_days(calendar, previous_dates: list[QDate], day_keys: list[str]) -> list[QDate]:
+    """Highlight days with records in a QDateEdit popup calendar."""
+    empty_format = QTextCharFormat()
+    for date in previous_dates:
+        calendar.setDateTextFormat(date, empty_format)
+
+    record_format = QTextCharFormat()
+    record_format.setFontWeight(QFont.Weight.Bold)
+    record_format.setForeground(QColor("#765000"))
+    record_format.setBackground(QColor("#FFF1BF"))
+
+    marked_dates: list[QDate] = []
+    for day in day_keys:
+        date = QDate.fromString(day, "yyyy-MM-dd")
+        if date.isValid():
+            calendar.setDateTextFormat(date, record_format)
+            marked_dates.append(date)
+    return marked_dates
 
 
 class CollapsibleSection(QFrame):
@@ -5911,7 +5932,7 @@ class HistoryPage(QWidget):
         self.history_date_input.setDisplayFormat("yyyy-MM-dd")
         self.history_date_input.setCalendarPopup(True)
         self.history_date_input.setFixedWidth(118)
-        self.history_date_input.setToolTip("可直接输入日期，或从日历中选择日期")
+        self.history_date_input.setToolTip("可直接输入日期，或从日历中选择日期；浅黄色加粗日期表示当天有历史记录")
         self.history_date_input.setKeyboardTracking(False)
         self.history_date_input.dateChanged.connect(self.select_day_from_input)
         self.history_date_input.editingFinished.connect(self.select_day_from_input)
@@ -5956,6 +5977,7 @@ class HistoryPage(QWidget):
         self.day_keys: list[str] = []
         self.current_day = ""
         self._date_selection_pending = False
+        self._marked_calendar_dates: list[QDate] = []
         self.refresh()
 
     def refresh(self) -> None:
@@ -5979,6 +6001,9 @@ class HistoryPage(QWidget):
                 if query in haystack.lower():
                     filtered_items.append(item)
         self.day_keys = ordered_record_days(filtered_items, "timestamp")
+        self._marked_calendar_dates = mark_calendar_record_days(
+            self.history_date_input.calendarWidget(), self._marked_calendar_dates, self.day_keys,
+        )
         if not self.current_day:
             self.current_day = self.day_keys[0] if self.day_keys else ""
         self.items = [
@@ -6800,7 +6825,7 @@ class GalleryPage(QWidget):
         self.gallery_date_input.setDisplayFormat("yyyy-MM-dd")
         self.gallery_date_input.setCalendarPopup(True)
         self.gallery_date_input.setFixedWidth(118)
-        self.gallery_date_input.setToolTip("可直接输入日期，或从日历中选择日期")
+        self.gallery_date_input.setToolTip("可直接输入日期，或从日历中选择日期；浅黄色加粗日期表示当天有可预览图片")
         self.gallery_date_input.setKeyboardTracking(False)
         self.gallery_date_input.dateChanged.connect(self.select_day_from_input)
         self.gallery_date_input.editingFinished.connect(self.select_day_from_input)
@@ -6871,6 +6896,7 @@ class GalleryPage(QWidget):
         self.day_keys: list[str] = []
         self.current_day = ""
         self._date_selection_pending = False
+        self._marked_calendar_dates: list[QDate] = []
         self._stale_count = 0
         self._record_limit = 30
         self.refresh()
@@ -6933,6 +6959,9 @@ class GalleryPage(QWidget):
 
     def apply_day_page(self) -> None:
         self.day_keys = ordered_record_days(self.all_records, "updated_at")
+        self._marked_calendar_dates = mark_calendar_record_days(
+            self.gallery_date_input.calendarWidget(), self._marked_calendar_dates, self.day_keys,
+        )
         if not self.current_day:
             self.current_day = self.day_keys[0] if self.day_keys else ""
         self.records = [
