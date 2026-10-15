@@ -4488,12 +4488,10 @@ class OCRPage(QWidget):
         for group in "ABCD":
             group_menu.addAction(f"改为 {group} 组", lambda _checked=False, value=group: self.set_selected_group(value))
         category_menu = menu.addMenu("分类操作")
+        category_menu.addAction("批量修改选中项分类…", self.batch_set_selected_category)
         category_menu.addAction("重命名当前分类…", self.rename_selected_category)
         category_menu.addAction("查看当前分类统计", self.show_selected_category_stats)
         category_menu.addAction("更改当前分类颜色…", self.change_selected_category_color)
-        batch_menu = category_menu.addMenu("整类修改组值")
-        for group in "ABCD":
-            batch_menu.addAction(f"整类改为 {group} 组", lambda _checked=False, value=group: self.set_category_group(value))
         menu.addSeparator()
         menu.addAction("拆分全部 A 组", self.split_group_a)
         menu.addAction("应用空格／清理规则", self.batch_cleanup)
@@ -5052,6 +5050,53 @@ class OCRPage(QWidget):
         self._refresh_table_after_row_change()
         self._select_rows([indices[0]])
 
+    def batch_set_selected_category(self) -> None:
+        indices = self._selected_rows()
+        if not indices:
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("批量修改分类")
+        dialog.setMinimumWidth(360)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setSpacing(12)
+        layout.addWidget(QLabel(f"将 {len(indices)} 条选中项的分类修改为："))
+        combo = QComboBox()
+        combo.setEditable(True)
+        existing = list(dict.fromkeys(
+            str(row.get("category", "")).strip()
+            for row in self.rows if str(row.get("category", "")).strip()
+        ))
+        combo.addItems(existing)
+        combo.setCurrentText("")
+        layout.addWidget(combo)
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        cancel = QPushButton("取消")
+        cancel.clicked.connect(dialog.reject)
+        confirm = QPushButton("确认")
+        confirm.setObjectName("primary")
+        confirm.clicked.connect(dialog.accept)
+        buttons.addWidget(cancel)
+        buttons.addWidget(confirm)
+        layout.addLayout(buttons)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        new_category = combo.currentText().strip()
+        if not new_category:
+            return
+        self._snapshot(redraw_plot=False)
+        self.table.blockSignals(True)
+        for index in indices:
+            self.rows[index]["category"] = new_category
+            self.rows[index]["category_key"] = new_category
+            item = self.table.item(index, 6)
+            if item is not None:
+                item.setText(new_category)
+                item.setToolTip(new_category)
+        self.table.blockSignals(False)
+        self._refresh_table_after_row_change(set())
+        self.statusChanged.emit("done", f"已将 {len(indices)} 条记录的分类修改为「{new_category}」")
     def set_selected_group(self, group: str) -> None:
         indices = self._selected_rows()
         if not indices:
