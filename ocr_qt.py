@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
     QSizePolicy, QSpinBox, QDoubleSpinBox, QStackedWidget, QTableWidget, QTableWidgetItem,
     QTextEdit, QVBoxLayout, QWidget, QInputDialog, QComboBox,
     QListWidget, QListWidgetItem, QSplitter, QMenu, QDialogButtonBox, QColorDialog,
-    QTabWidget, QStyledItemDelegate,
+    QTabWidget, QStyledItemDelegate, QToolButton,
 )
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
@@ -76,7 +76,7 @@ EXCEL_EXPORT_FORMAT_SHORT_NAMES = {
 REPORT_FORMAT_NAMES = {
     "legacy": "仅名称",
     "columns": "三列",
-    "grouped": "Markdown 分组表格",
+    "grouped": "表格",
 }
 
 for _font_path in (Path(r"C:\Windows\Fonts\msyh.ttc"), Path(r"C:\Windows\Fonts\msyh.ttf")):
@@ -136,6 +136,17 @@ QPushButton#nav:checked {{
     background: #FFF7E3; color: #30343A; border-left: 3px solid {YELLOW};
     padding-left: 13px;
 }}
+QToolButton {{
+    min-height: 34px; padding: 0 14px; background: #F6F7F9;
+    border: 1px solid #ECEEF1; border-radius: 8px;
+}}
+QToolButton:hover {{ background: #FFF8DF; border-color: #F4D66B; }}
+QToolButton:pressed {{ background: #FFEDAD; }}
+QToolButton:disabled {{ color: #A9ADB4; background: #F4F5F6; }}
+QToolButton::menu-button {{
+    border-left: 1px solid #ECEEF1; border-radius: 0 8px 8px 0; width: 16px;
+}}
+QToolButton::menu-button:hover {{ background: #FFF8DF; border-color: #F4D66B; }}
 QLineEdit, QDateEdit, QSpinBox, QDoubleSpinBox, QTextEdit, QTableWidget {{
     background: #FFFFFF; border: 1px solid #E2E5E9; border-radius: 7px;
     selection-background-color: #FFE58A;
@@ -2574,9 +2585,9 @@ class OCRPage(QWidget):
         toolbar = QHBoxLayout()
         toolbar.addWidget(section_label("分类结果"))
         font_config = self.repository.get("font_config", {}) or {}
-        verify = QPushButton("原图核对")
+        verify = QPushButton("原图")
         verify.clicked.connect(self.open_verification_dialog)
-        advanced = QPushButton("高级分类操作")
+        advanced = QPushButton("其他")
         advanced.setMenu(self._build_advanced_menu())
         layout.addLayout(toolbar)
         undo = QPushButton("撤销")
@@ -2593,9 +2604,9 @@ class OCRPage(QWidget):
         merge.clicked.connect(self.merge_rows)
         split_a = QPushButton("拆分A组")
         split_a.clicked.connect(self.split_group_a)
-        cleanup = QPushButton("批量整理")
+        cleanup = QPushButton("整理")
         cleanup.clicked.connect(self.batch_cleanup)
-        classifier_history = QPushButton("分类表历史")
+        classifier_history = QPushButton("历史")
         classifier_history.clicked.connect(self.show_classifier_history)
         toolbar.addWidget(undo)
         toolbar.addWidget(add)
@@ -2881,14 +2892,22 @@ class OCRPage(QWidget):
         replace.clicked.connect(self.apply_report_replacements)
         replace_settings = QPushButton("替换设置")
         replace_settings.clicked.connect(self.edit_report_replacements)
-        simplified = QPushButton("繁→简")
-        simplified.clicked.connect(lambda: self.convert_report("t2s"))
-        traditional = QPushButton("简→繁")
-        traditional.clicked.connect(lambda: self.convert_report("s2t"))
-        export = QPushButton("导出 TXT")
-        export.clicked.connect(self.export_txt)
-        excel = QPushButton("导出 Excel")
-        excel.clicked.connect(self.export_report_excel)
+        convert = QToolButton()
+        convert.setText("繁→简")
+        convert.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        convert_menu = QMenu(self)
+        convert_menu.addAction("繁→简", lambda: self.convert_report("t2s"))
+        convert_menu.addAction("简→繁", lambda: self.convert_report("s2t"))
+        convert.setMenu(convert_menu)
+        convert.clicked.connect(lambda: self.convert_report("t2s"))
+        export = QToolButton()
+        export.setText("导出 Excel")
+        export.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        export_menu = QMenu(self)
+        export_menu.addAction("导出 Excel", self.export_report_excel)
+        export_menu.addAction("导出 TXT", self.export_txt)
+        export.setMenu(export_menu)
+        export.clicked.connect(self.export_report_excel)
         history = QPushButton("导出历史")
         history.clicked.connect(self.show_export_history)
         self.separator_button = QPushButton("")
@@ -2897,10 +2916,8 @@ class OCRPage(QWidget):
         self.report_format_button.clicked.connect(self.toggle_report_format)
         first_row.addWidget(replace)
         first_row.addWidget(replace_settings)
-        first_row.addWidget(simplified)
-        first_row.addWidget(traditional)
+        first_row.addWidget(convert)
         first_row.addWidget(export)
-        first_row.addWidget(excel)
         first_row.addWidget(history)
         first_row.addWidget(self.separator_button)
         first_row.addWidget(self.report_format_button)
@@ -4184,7 +4201,7 @@ class OCRPage(QWidget):
             self.separator_button.setEnabled(report_format != "grouped")
         if hasattr(self, "report_format_button"):
             self.report_format_button.setText(
-                f"格式：{REPORT_FORMAT_NAMES.get(report_format, REPORT_FORMAT_NAMES['legacy'])}"
+                f"{REPORT_FORMAT_NAMES.get(report_format, REPORT_FORMAT_NAMES['legacy'])}"
             )
         if regenerate_on_change and previous is not None and previous != state and hasattr(self, "report"):
             self._update_report()
