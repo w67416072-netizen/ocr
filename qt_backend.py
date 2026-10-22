@@ -49,6 +49,7 @@ _token_cache: dict[str, dict[str, Any]] = {}
 
 
 DATA_FILE = APP_DIR / "ocr_data.json"
+IMAGE_CACHE_FILE = APP_DIR / "ocr_image_cache.json"
 CLASSIFIER_HISTORY_LIMIT = 100
 
 MODE_NAMES = {
@@ -171,6 +172,20 @@ def get_file_content_as_base64(path: str, max_size: int = 8192,
                 return base64.b64encode(stream.read()).decode("utf-8")
         except OSError:
             return None
+
+
+def image_file_as_base64(path: str) -> str | None:
+    """Return the untouched source image as base64 for offline preview.
+
+    This deliberately does not use ``get_file_content_as_base64``: that helper
+    may resize/recompress a file for the OCR API, while the gallery should keep
+    an independent copy of the original import.
+    """
+    try:
+        with open(path, "rb") as stream:
+            return base64.b64encode(stream.read()).decode("ascii")
+    except OSError:
+        return None
 
 
 def _ocr_request(image_path: str, endpoint: str, *, use_basic: bool = False,
@@ -358,6 +373,12 @@ class DataStore:
         self.save()
 
 
+class ImageCacheStore(DataStore):
+    """Separate persistent store for embedded original-image Base64 data."""
+
+    DEFAULT_DATA = {"images": {}}
+
+
 class Repository:
     """Compatibility wrapper around the existing JSON store and schemas."""
 
@@ -378,6 +399,7 @@ class Repository:
 
     def __init__(self) -> None:
         self.store = DataStore(DATA_FILE)
+        self.image_store = ImageCacheStore(IMAGE_CACHE_FILE)
 
     def get(self, key: str, default: Any = None) -> Any:
         return self.store.get(key, default)
@@ -387,6 +409,81 @@ class Repository:
 
     def reload(self) -> None:
         self.store.load()
+        self.image_store.load()
+
+    @staticmethod
+    def ocr_image_key(cache_key: str) -> str:
+        return f"ocr:{cache_key}"
+
+    @staticmethod
+    def merge_image_key(output_path: str) -> str:
+        normalized = os.path.normcase(os.path.abspath(output_path))
+        digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+        return f"merge:{digest}"
+
+    def image_data(self, key: str) -> str:
+        images = self.image_store.get("images", {}) or {}
+        value = images.get(key, "") if isinstance(images, dict) else ""
+        return value if isinstance(value, str) else ""
+
+    def has_image_data(self, key: str) -> bool:
+        return bool(self.image_data(key))
+
+    def save_image_from_file(self, key: str, path: str) -> bool:
+        encoded = image_file_as_base64(path)
+        if not encoded:
+            return False
+        images = self.image_store.get("images", {}) or {}
+        images = dict(images) if isinstance(images, dict) else {}
+        images[key] = encoded
+        self.image_store.set("images", images)
+        return True
+
+    def remove_image_data(self, key: str) -> None:
+        images = self.image_store.get("images", {}) or {}
+        if not isinstance(images, dict) or key not in images:
+            return
+        images = dict(images)
+        images.pop(key, None)
+        self.image_store.set("images", images)
+
+    def migrate_embedded_image_data(self) -> None:
+        """Move images written by the previous format into the sidecar file."""
+        images = self.image_store.get("images", {}) or {}
+        images = dict(images) if isinstance(images, dict) else {}
+        images_changed = False
+
+        cache = self.get("ocr_cache", {}) or {}
+        cache_changed = False
+        for cache_key, record in cache.items():
+            if not isinstance(record, dict):
+                continue
+            had_embedded_image = "image_base64" in record
+            encoded = record.pop("image_base64", "")
+            if isinstance(encoded, str) and encoded:
+                images[self.ocr_image_key(str(cache_key))] = encoded
+                images_changed = True
+            if had_embedded_image:
+                cache_changed = True
+        if cache_changed:
+            self.set("ocr_cache", cache)
+
+        history = self.get("merge_history", []) or []
+        history_changed = False
+        for record in history:
+            if not isinstance(record, dict):
+                continue
+            had_embedded_image = "image_base64" in record
+            encoded = record.pop("image_base64", "")
+            if isinstance(encoded, str) and encoded and record.get("output_path"):
+                images[self.merge_image_key(str(record["output_path"]))] = encoded
+                images_changed = True
+            if had_embedded_image:
+                history_changed = True
+        if history_changed:
+            self.set("merge_history", history)
+        if images_changed:
+            self.image_store.set("images", images)
 
     def daily_ocr_limit_config(self, mode: str) -> dict[str, Any]:
         """Return the saved limit configuration for a restricted OCR mode."""
@@ -481,7 +578,9 @@ class Repository:
 
     def cached(self, path: str, mode: str) -> tuple[str, dict[str, Any] | None]:
         digest = image_hash(path)
-        record = (self.get("ocr_cache", {}) or {}).get(f"{mode}:{digest}")
+        cache = self.get("ocr_cache", {}) or {}
+        cache_key = f"{mode}:{digest}"
+        record = cache.get(cache_key)
         if not record:
             return digest, None
         lines = list(record.get("lines", []))
@@ -500,6 +599,10 @@ class Repository:
         # recognition upgrades them with the API's exact location boxes.
         if not has_exact_boxes:
             return digest, None
+        # Upgrade older cache entries while their source image is still
+        # available, so moving the file later does not break image review.
+        if not self.has_image_data(self.ocr_image_key(cache_key)):
+            self.save_image_from_file(self.ocr_image_key(cache_key), path)
         return digest, {
             "file": os.path.basename(path),
             "path": path,
@@ -516,7 +619,8 @@ class Repository:
         if not digest or not lines:
             return
         cache = self.get("ocr_cache", {}) or {}
-        cache[f"{mode}:{digest}"] = {
+        cache_key = f"{mode}:{digest}"
+        cache[cache_key] = {
             "hash": digest,
             "type": mode,
             "file": os.path.basename(path),
@@ -527,6 +631,7 @@ class Repository:
             "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
         self.set("ocr_cache", cache)
+        self.save_image_from_file(self.ocr_image_key(cache_key), path)
 
     def save_history_and_stats(self, mode: str, results: list[dict[str, Any]],
                                book_name: str, start_page: int) -> None:

@@ -9,6 +9,7 @@ OCR API calls and ``ocr_data.json`` persistence are provided by the standalone
 from __future__ import annotations
 
 import os
+import base64
 import subprocess
 import sys
 import copy
@@ -51,7 +52,9 @@ from matplotlib import font_manager, rcParams
 from matplotlib.path import Path as MplPath
 from matplotlib.widgets import LassoSelector
 
-from qt_backend import MODE_NAMES, OCRWorker, Repository, key_available, parse_line
+from qt_backend import (
+    MODE_NAMES, OCRWorker, Repository, key_available, parse_line,
+)
 import qt_backend
 
 
@@ -1162,6 +1165,7 @@ def add_merge_history(repository: Repository, source_type: str, output_path: str
     }
     history = [entry] + [item for item in history if item.get("output_path") != output_path]
     repository.set("merge_history", history[:20])
+    repository.save_image_from_file(repository.merge_image_key(output_path), output_path)
 
 
 def mark_merge_recognized(repository: Repository, output_path: str, mode: str) -> None:
@@ -2625,8 +2629,14 @@ class OCRPage(QWidget):
         table.setItemDelegate(self.table_font_delegate)
         table.setHorizontalHeaderLabels(["名称", "Y", "X", "高度", "置信度", "分组", "分类"])
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for column in (4, 5, 6):
+        for column in (4, 6):
             table.horizontalHeader().setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+        # The group cell is a styled QComboBox rather than plain item text.
+        # ResizeToContents only measures the underlying A/B/C/D item, which
+        # becomes too narrow after a style refresh (for example, maximising
+        # the main window) and leaves the combo with no text painting area.
+        table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
+        table.setColumnWidth(5, 96)
         for column in (1, 2, 3):
             table.setColumnHidden(column, True)
         initial_size = int(font_config.get("font_size", 11) or 11)
@@ -3617,7 +3627,7 @@ class OCRPage(QWidget):
 
     def _create_group_button(self, row_index: int, group: str) -> GroupCellButton:
         button = GroupCellButton(group, row_index)
-        button.setMinimumWidth(52)
+        button.setMinimumWidth(96)
         font_size = int(self.table.property("classifierFontSize") or 11)
         button.setFont(QFont("Microsoft YaHei UI", font_size, QFont.Weight.Bold))
         button.setStyleSheet(self._group_button_style(font_size))
@@ -6785,6 +6795,27 @@ class GalleryImageView(QScrollArea):
         self._render()
         return True, ""
 
+    @staticmethod
+    def pixmap_from_base64(encoded: str) -> QPixmap:
+        """Decode an embedded gallery image without creating a temporary file."""
+        try:
+            data = base64.b64decode(encoded, validate=True)
+        except (ValueError, TypeError):
+            return QPixmap()
+        pixmap = QPixmap()
+        return pixmap if pixmap.loadFromData(data) else QPixmap()
+
+    def load_base64_image(self, encoded: str) -> tuple[bool, str]:
+        pixmap = self.pixmap_from_base64(encoded)
+        if pixmap.isNull():
+            self.clear_image("缓存图片读取失败")
+            return False, "缓存的 Base64 图片数据无效或已损坏"
+        self.source = pixmap
+        self.zoom = 1.0
+        self.fit_to_window = True
+        self._render()
+        return True, ""
+
     def clear_image(self, message: str = "暂无可预览图片") -> None:
         self.source = QPixmap()
         self.image_label.clear()
@@ -6963,6 +6994,7 @@ class GalleryPage(QWidget):
 
     def refresh(self) -> None:
         self.repository.reload()
+        self.repository.migrate_embedded_image_data()
         cache = self.repository.get("ocr_cache", {}) or {}
         self.all_records = []
         stale_count = 0
@@ -6971,7 +7003,10 @@ class GalleryPage(QWidget):
             if not isinstance(value, dict) or not value.get("path"):
                 continue
             path = Path(str(value["path"]))
-            if not path.exists():
+            image_key = self.repository.ocr_image_key(str(cache_key))
+            if path.exists() and not self.repository.has_image_data(image_key):
+                self.repository.save_image_from_file(image_key, str(path))
+            if not path.exists() and not self.repository.has_image_data(image_key):
                 stale_count += 1
                 continue
             path_key = os.path.normcase(os.path.abspath(str(path)))
@@ -6980,14 +7015,19 @@ class GalleryPage(QWidget):
             seen_paths.add(path_key)
             record = dict(value)
             record["_cache_key"] = cache_key
+            record["_image_cache_key"] = image_key
             record["_record_kind"] = "ocr"
             self.all_records.append(record)
         source_labels = {"file": "文件拼接", "screenshot": "截图拼接", "crop": "裁剪拼接"}
-        for index, value in enumerate(self.repository.get("merge_history", []) or []):
+        merge_history = list(self.repository.get("merge_history", []) or [])
+        for index, value in enumerate(merge_history):
             if not isinstance(value, dict) or not value.get("output_path"):
                 continue
             path = Path(str(value["output_path"]))
-            if not path.exists():
+            image_key = self.repository.merge_image_key(str(path))
+            if path.exists() and not self.repository.has_image_data(image_key):
+                self.repository.save_image_from_file(image_key, str(path))
+            if not path.exists() and not self.repository.has_image_data(image_key):
                 stale_count += 1
                 continue
             path_key = os.path.normcase(os.path.abspath(str(path)))
@@ -7005,6 +7045,7 @@ class GalleryPage(QWidget):
                 "updated_at": value.get("recognized_at") or value.get("time", ""),
                 "_record_kind": "merge",
                 "_merge_index": index,
+                "_image_cache_key": image_key,
             })
         self.all_records.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
         try:
@@ -7044,23 +7085,35 @@ class GalleryPage(QWidget):
                 cell = QTableWidgetItem(str(value))
                 cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 if column == 0:
-                    reader = QImageReader(str(item["path"]))
-                    reader.setAutoTransform(True)
-                    source_size = reader.size()
-                    if source_size.isValid():
-                        reader.setScaledSize(source_size.scaled(
-                            QSize(48, 48), Qt.AspectRatioMode.KeepAspectRatio,
-                        ))
-                    thumb = reader.read()
-                    if not thumb.isNull():
-                        cell.setIcon(QIcon(QPixmap.fromImage(thumb)))
+                    path = Path(str(item["path"]))
+                    if path.exists():
+                        reader = QImageReader(str(path))
+                        reader.setAutoTransform(True)
+                        source_size = reader.size()
+                        if source_size.isValid():
+                            reader.setScaledSize(source_size.scaled(
+                                QSize(48, 48), Qt.AspectRatioMode.KeepAspectRatio,
+                            ))
+                        thumb = reader.read()
+                        pixmap = QPixmap.fromImage(thumb) if not thumb.isNull() else QPixmap()
+                    else:
+                        pixmap = GalleryImageView.pixmap_from_base64(
+                            self.repository.image_data(str(item.get("_image_cache_key", "")))
+                        )
+                        if not pixmap.isNull():
+                            pixmap = pixmap.scaled(
+                                QSize(48, 48), Qt.AspectRatioMode.KeepAspectRatio,
+                                Qt.TransformationMode.SmoothTransformation,
+                            )
+                    if not pixmap.isNull():
+                        cell.setIcon(QIcon(pixmap))
                 self.table.setItem(row, column, cell)
         if self.records:
             self.table.selectRow(0)
         else:
             self.viewer.clear_image("暂无可预览图片\n请先导入图片并完成 OCR 识别")
             self.preview_title.setText("图片预览")
-            self.preview_info.setText("识别后的原图片仍需保存在原位置，才能在这里预览。")
+            self.preview_info.setText("请先导入图片并完成 OCR 识别；原图将单独缓存，移动或删除后仍可预览。")
 
     def _sync_day_navigation(self) -> None:
         self._sync_date_input()
@@ -7114,20 +7167,30 @@ class GalleryPage(QWidget):
             return
         record = self.records[row]
         path = str(record.get("path", ""))
-        ok, error = self.viewer.load_image(path)
+        from_cache = not Path(path).exists()
+        if from_cache:
+            ok, error = self.viewer.load_base64_image(
+                self.repository.image_data(str(record.get("_image_cache_key", "")))
+            )
+        else:
+            ok, error = self.viewer.load_image(path)
         self.preview_title.setText(str(record.get("file") or Path(path).name))
         if not ok:
             self.preview_info.setText(f"无法预览：{error}\n{path}")
             return
         try:
-            file_size = Path(path).stat().st_size
+            file_size = (
+                Path(path).stat().st_size if not from_cache
+                else len(base64.b64decode(self.repository.image_data(str(record.get("_image_cache_key", "")))))
+            )
             size_text = f"{file_size / 1024:.1f} KB" if file_size < 1024 * 1024 else f"{file_size / 1024 / 1024:.1f} MB"
-        except OSError:
+        except (OSError, KeyError, ValueError, TypeError):
             size_text = "未知大小"
+        source_text = "已从本地缓存恢复" if from_cache else "原始文件"
         self.preview_info.setText(
             f"{self.viewer.source.width()} × {self.viewer.source.height()} px  ·  {size_text}  ·  "
             f"{record.get('display_type') or MODE_NAMES.get(record.get('type'), record.get('type', ''))}  ·  "
-            f"{record.get('line_count', len(record.get('lines', [])))} 行\n"
+            f"{record.get('line_count', len(record.get('lines', [])))} 行  ·  {source_text}\n"
             f"Ctrl + 鼠标滚轮可缩放；放大后可拖动滚动条查看"
         )
 
@@ -7171,6 +7234,7 @@ class GalleryPage(QWidget):
             cache = self.repository.get("ocr_cache", {}) or {}
             cache.pop(record.get("_cache_key", ""), None)
             self.repository.set("ocr_cache", cache)
+        self.repository.remove_image_data(str(record.get("_image_cache_key", "")))
         self.refresh()
 
 
