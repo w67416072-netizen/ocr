@@ -53,7 +53,7 @@ from matplotlib.path import Path as MplPath
 from matplotlib.widgets import LassoSelector
 
 from qt_backend import (
-    MODE_NAMES, OCRWorker, Repository, key_available, parse_line,
+    MODE_NAMES, OCRWorker, Repository, image_hash, key_available, parse_line,
 )
 import qt_backend
 
@@ -68,6 +68,7 @@ SURFACE = "#FFFFFF"
 BACKGROUND = "#F7F8FA"
 BORDER = "#E8EAED"
 GROUP_C_GREEN = "#16A269"
+GROUP_D_LIGHT_BLUE = "#5AA9E6"
 EXCEL_EXPORT_FORMAT_NAMES = {
     "standard": "标准格式（分类 | 名称 | 组值）",
     "grouped": "分组格式（辈分 | t1(A组) | t2(C组) | t3(B组) | d(D组)）",
@@ -169,6 +170,51 @@ QScrollArea#paramsScroll,
 QScrollArea#paramsScroll > QWidget > QWidget,
 QWidget#paramsContent {{ background: transparent; }}
 """
+
+
+class ButtonTextMinimumSizeFilter(QObject):
+    """Keep every textual button large enough for its complete label."""
+
+    _REFRESH_EVENTS = {
+        QEvent.Type.Polish,
+        QEvent.Type.Show,
+        QEvent.Type.FontChange,
+        QEvent.Type.StyleChange,
+    }
+
+    @staticmethod
+    def apply(button: QPushButton) -> None:
+        text = button.text()
+        if not text:
+            return
+        metrics = button.fontMetrics()
+        lines = text.splitlines() or [text]
+        text_width = max(metrics.horizontalAdvance(line.replace("&", "")) for line in lines)
+        icon_width = button.iconSize().width() + 6 if not button.icon().isNull() else 0
+
+        # The shared button style uses 14 px padding on both sides.  Retain a
+        # small inner margin for locally styled buttons that use less padding.
+        required_width = max(36, text_width + icon_width + 28)
+        required_height = max(24, metrics.height() * len(lines) + 12)
+        if button.maximumWidth() < required_width:
+            button.setMaximumWidth(required_width)
+        if button.minimumWidth() < required_width:
+            button.setMinimumWidth(required_width)
+        if button.maximumHeight() < required_height:
+            button.setMaximumHeight(required_height)
+        if button.minimumHeight() < required_height:
+            button.setMinimumHeight(required_height)
+
+    def eventFilter(self, watched: QObject, event) -> bool:
+        if isinstance(watched, QPushButton) and event.type() in self._REFRESH_EVENTS:
+            self.apply(watched)
+        return super().eventFilter(watched, event)
+
+
+def ensure_button_text_minimums(root: QWidget) -> None:
+    """Refresh text-safe button dimensions after a layout-scale change."""
+    for button in root.findChildren(QPushButton):
+        ButtonTextMinimumSizeFilter.apply(button)
 
 
 def add_shadow(widget: QWidget, blur: int = 14, opacity: int = 14) -> None:
@@ -494,6 +540,18 @@ class StepButton(QPushButton):
             f"font-size:{max(9, round(10 * ui_scale))}px;color:#777C84;"
         )
         self._sync_style(self.isChecked())
+
+    def content_minimum_width(self) -> int:
+        """Width required for the badge plus both visible step labels."""
+        labels_width = max(
+            self.title_label.fontMetrics().horizontalAdvance(self.title_label.text()),
+            self.subtitle_label.fontMetrics().horizontalAdvance(self.subtitle_label.text()),
+        )
+        margins = self.content_layout.contentsMargins()
+        return (
+            margins.left() + self.badge.width() + self.content_layout.spacing()
+            + labels_width + margins.right()
+        )
 
     def _sync_style(self, checked: bool) -> None:
         background = "#FFF9E8" if checked else "transparent"
@@ -965,18 +1023,57 @@ class CropDialog(QDialog):
             self.accept()
 
 
+class _HighlightPixmapLabel(QLabel):
+    """Label that draws the highlight box directly in paintEvent without re-scaling the image."""
+
+    def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
+        super().__init__(text, parent)
+        self.highlight_rect = QRect()
+        self.source_size = QSize()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        super().paintEvent(event)
+        pixmap = self.pixmap()
+        if (
+            pixmap.isNull()
+            or not self.source_size.isValid()
+            or self.source_size.width() <= 0
+            or self.source_size.height() <= 0
+            or not self.highlight_rect.isValid()
+            or self.highlight_rect.isNull()
+        ):
+            return
+        sx = pixmap.width() / self.source_size.width()
+        sy = pixmap.height() / self.source_size.height()
+        highlight = QRect(
+            round(self.highlight_rect.x() * sx),
+            round(self.highlight_rect.y() * sy),
+            max(2, round(self.highlight_rect.width() * sx)),
+            max(2, round(self.highlight_rect.height() * sy)),
+        ).intersected(pixmap.rect())
+        if highlight.isValid():
+            painter = QPainter(self)
+            painter.fillRect(highlight, QColor(255, 196, 0, 70))
+            painter.setPen(QPen(QColor("#E53935"), 3))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(highlight.adjusted(1, 1, -1, -1))
+            painter.end()
+
+
 class PixmapScrollViewer(QScrollArea):
     """Small reusable fit/zoom image preview used by all merge workflows."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.source = QPixmap()
+        self._scaled_base = QPixmap()
+        self._scaled_size = QSize()
         self.highlight_rect = QRect()
         self.zoom = 1.0
         self.fit = True
         self._dragging = False
         self._drag_global_position = QPoint()
-        self.label = QLabel("暂无预览")
+        self.label = _HighlightPixmapLabel("暂无预览")
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.label.setStyleSheet("background:#F3F4F6;color:#8A9099;")
         self.label.setCursor(Qt.CursorShape.OpenHandCursor)
@@ -1022,14 +1119,37 @@ class PixmapScrollViewer(QScrollArea):
 
     def set_pixmap(self, pixmap: QPixmap) -> None:
         self.source = QPixmap(pixmap)
+        self._scaled_base = QPixmap()
+        self._scaled_size = QSize()
         self.highlight_rect = QRect()
+        self.label.highlight_rect = QRect()
+        self.label.source_size = self.source.size()
         self.fit = True
         self.zoom = 1.0
         self._render()
 
+    def load_base64_image(self, encoded: str) -> tuple[bool, str]:
+        pixmap = GalleryImageView.pixmap_from_base64(encoded)
+        if pixmap.isNull():
+            self.set_pixmap(QPixmap())
+            return False, "缓存的 Base64 图片数据无效或已损坏"
+        self.set_pixmap(pixmap)
+        return True, ""
+
     def set_highlight(self, rect: QRect | None) -> None:
-        self.highlight_rect = QRect(rect) if rect is not None else QRect()
-        self._render()
+        new_rect = QRect(rect) if rect is not None else QRect()
+        if self.highlight_rect != new_rect:
+            self.highlight_rect = new_rect
+            self.label.highlight_rect = new_rect
+            self.label.update()
+        if self.highlight_rect.isValid() and not self.fit and not self.source.isNull():
+            scale = self.zoom
+            center_x = round(self.highlight_rect.center().x() * scale)
+            center_y = round(self.highlight_rect.center().y() * scale)
+            QTimer.singleShot(
+                0,
+                lambda: self.ensureVisible(center_x, center_y, 80, 80),
+            )
 
     def show_actual(self) -> None:
         self.fit = False
@@ -1052,6 +1172,11 @@ class PixmapScrollViewer(QScrollArea):
 
     def _render(self) -> None:
         if self.source.isNull():
+            self._scaled_base = QPixmap()
+            self._scaled_size = QSize()
+            self.label.source_size = QSize()
+            self.label.highlight_rect = QRect()
+            self.label.setPixmap(QPixmap())
             self.label.setText("暂无预览")
             self.label.resize(max(320, self.viewport().width()), max(220, self.viewport().height()))
             return
@@ -1061,27 +1186,19 @@ class PixmapScrollViewer(QScrollArea):
         else:
             scale = self.zoom
         size = QSize(max(1, round(self.source.width() * scale)), max(1, round(self.source.height() * scale)))
-        preview = self.source.scaled(size, Qt.AspectRatioMode.KeepAspectRatio,
-                                     Qt.TransformationMode.SmoothTransformation)
-        if self.highlight_rect.isValid() and not self.highlight_rect.isNull():
-            sx = preview.width() / self.source.width()
-            sy = preview.height() / self.source.height()
-            highlight = QRect(
-                round(self.highlight_rect.x() * sx),
-                round(self.highlight_rect.y() * sy),
-                max(2, round(self.highlight_rect.width() * sx)),
-                max(2, round(self.highlight_rect.height() * sy)),
-            ).intersected(preview.rect())
-            if highlight.isValid():
-                painter = QPainter(preview)
-                painter.fillRect(highlight, QColor(255, 196, 0, 70))
-                painter.setPen(QPen(QColor("#E53935"), 3))
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.drawRect(highlight.adjusted(1, 1, -1, -1))
-                painter.end()
+        if self._scaled_base.isNull() or self._scaled_size != size:
+            self._scaled_base = self.source.scaled(
+                size,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self._scaled_size = QSize(size)
+        self.label.source_size = self.source.size()
+        self.label.highlight_rect = self.highlight_rect
         self.label.setText("")
-        self.label.resize(preview.size())
-        self.label.setPixmap(preview)
+        self.label.resize(self._scaled_base.size())
+        self.label.setPixmap(self._scaled_base)
+        self.label.update()
         if self.highlight_rect.isValid() and not self.fit:
             center_x = round(self.highlight_rect.center().x() * scale)
             center_y = round(self.highlight_rect.center().y() * scale)
@@ -1993,18 +2110,19 @@ class ClassifierTable(QTableWidget):
     def _classification_key(event) -> tuple[str, Any] | None:
         modifiers = event.modifiers()
         key = event.key()
-        if (
-            modifiers == Qt.KeyboardModifier.ControlModifier
-            and key in {Qt.Key.Key_Up, Qt.Key.Key_Down}
-        ):
-            return "cursor", -1 if key == Qt.Key.Key_Up else 1
         blocked = (
             Qt.KeyboardModifier.ControlModifier
             | Qt.KeyboardModifier.AltModifier
             | Qt.KeyboardModifier.MetaModifier
             | Qt.KeyboardModifier.ShiftModifier
         )
-        if modifiers & blocked:
+        active_modifiers = modifiers & blocked
+        if (
+            active_modifiers == Qt.KeyboardModifier.ControlModifier
+            and key in {Qt.Key.Key_Up, Qt.Key.Key_Down}
+        ):
+            return "cursor", -1 if key == Qt.Key.Key_Up else 1
+        if active_modifiers:
             return None
         text_value = event.text()
         nk = int(event.nativeVirtualKey())
@@ -2164,6 +2282,16 @@ class ClassifierHistoryDialog(QDialog):
 
 
 class OCRPage(QWidget):
+    # Keep table-column meanings explicit: the display order intentionally
+    # starts with category, ahead of the recognised text.
+    CATEGORY_COLUMN = 0
+    LABEL_COLUMN = 1
+    Y_COLUMN = 2
+    X_COLUMN = 3
+    HEIGHT_COLUMN = 4
+    CONFIDENCE_COLUMN = 5
+    GROUP_COLUMN = 6
+
     statusChanged = Signal(str, str)
     dataChanged = Signal()
 
@@ -2208,10 +2336,22 @@ class OCRPage(QWidget):
             and hasattr(self, "result_stack")
             and self.result_stack.currentIndex() == 1
             and self.isVisible()
-            and self._classifier_table_has_focus()
+            and (
+                self._classifier_table_has_focus()
+                or (
+                    hasattr(self, "verification_dialog")
+                    and self.verification_dialog.isVisible()
+                    and self.verification_dialog.isActiveWindow()
+                )
+            )
         ):
             if not self._classifier_cell_editor_has_focus():
                 action = ClassifierTable._classification_key(event)
+                if action and action[0] == "cursor":
+                    if not event.isAutoRepeat():
+                        self.move_selection_cursor(int(action[1]))
+                    event.accept()
+                    return True
                 native_key = int(event.nativeVirtualKey())
                 native_scan = int(event.nativeScanCode())
                 group = None
@@ -2515,9 +2655,11 @@ class OCRPage(QWidget):
             step_button_height + step_vertical_margin * 2 + 2
         )
         for width, button in zip(self.step_widths, self.step_buttons):
-            button.setFixedWidth(round(width * x_scale))
             if isinstance(button, StepButton):
                 button.apply_scale(x_scale, y_scale, ui_scale)
+                button.setFixedWidth(max(round(width * x_scale), button.content_minimum_width()))
+            else:
+                button.setFixedWidth(round(width * x_scale))
         for arrow in self.step_arrows:
             arrow.setFixedWidth(max(10, round(12 * x_scale)))
             arrow.setStyleSheet(
@@ -2627,17 +2769,17 @@ class OCRPage(QWidget):
         table = ClassifierTable(0, 7)
         self.table_font_delegate = TableFontDelegate(table)
         table.setItemDelegate(self.table_font_delegate)
-        table.setHorizontalHeaderLabels(["名称", "Y", "X", "高度", "置信度", "分组", "分类"])
-        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for column in (4, 6):
+        table.setHorizontalHeaderLabels(["分类", "名称", "Y", "X", "高度", "置信度", "分组"])
+        table.horizontalHeader().setSectionResizeMode(self.LABEL_COLUMN, QHeaderView.ResizeMode.Stretch)
+        for column in (self.CATEGORY_COLUMN, self.CONFIDENCE_COLUMN):
             table.horizontalHeader().setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
         # The group cell is a styled QComboBox rather than plain item text.
         # ResizeToContents only measures the underlying A/B/C/D item, which
         # becomes too narrow after a style refresh (for example, maximising
         # the main window) and leaves the combo with no text painting area.
-        table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
-        table.setColumnWidth(5, 96)
-        for column in (1, 2, 3):
+        table.horizontalHeader().setSectionResizeMode(self.GROUP_COLUMN, QHeaderView.ResizeMode.Fixed)
+        table.setColumnWidth(self.GROUP_COLUMN, 96)
+        for column in (self.Y_COLUMN, self.X_COLUMN, self.HEIGHT_COLUMN):
             table.setColumnHidden(column, True)
         initial_size = int(font_config.get("font_size", 11) or 11)
         table.setProperty("classifierFontSize", initial_size)
@@ -2692,19 +2834,9 @@ class OCRPage(QWidget):
             layout.setSpacing(8)
 
             header = QHBoxLayout()
-            self.verification_previous = QPushButton("上一张")
-            self.verification_previous.clicked.connect(
-                lambda: self._shift_verification_image(-1)
-            )
             self.verification_position = QLabel("暂无原图")
             self.verification_position.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.verification_next = QPushButton("下一张")
-            self.verification_next.clicked.connect(
-                lambda: self._shift_verification_image(1)
-            )
-            header.addWidget(self.verification_previous)
             header.addWidget(self.verification_position, 1)
-            header.addWidget(self.verification_next)
             layout.addLayout(header)
 
             self.verification_viewer = PixmapScrollViewer()
@@ -2731,9 +2863,12 @@ class OCRPage(QWidget):
             self.verification_line.setTextInteractionFlags(
                 Qt.TextInteractionFlag.TextSelectableByMouse
             )
+            font_config = self.repository.get("font_config", {}) or {}
+            shared_size = int(font_config.get("font_size", 11) or 11)
+            line_size = max(18, shared_size + 6)
             self.verification_line.setStyleSheet(
-                "background:#FFFFFF;border:1px solid #E5E7EB;border-radius:6px;"
-                "padding:7px;color:#374151;"
+                "background:#FFFFFF;border:1px solid #D1D5DB;border-radius:8px;"
+                f"padding:10px 14px;color:#111827;font-size:{line_size}px;font-weight:700;"
             )
             layout.addWidget(self.verification_line)
             footer = QHBoxLayout()
@@ -2748,7 +2883,7 @@ class OCRPage(QWidget):
         self.verification_dialog.activateWindow()
         if self.rows and not 0 <= self.table.currentRow() < len(self.rows):
             self.table.selectRow(0)
-            self.table.setCurrentCell(0, 0)
+            self.table.setCurrentCell(0, self.LABEL_COLUMN)
         self._sync_verification_from_table()
         if not self.rows:
             paths = self._verification_paths()
@@ -2757,21 +2892,63 @@ class OCRPage(QWidget):
 
     def _verification_paths(self) -> list[str]:
         candidates = [str(result.get("path", "") or "") for result in self.results]
+        candidates.extend(str(row.get("_source_path", "") or "") for row in self.rows)
         candidates.extend(self.paths)
         paths: list[str] = []
         seen: set[str] = set()
         for path in candidates:
-            if not path or not Path(path).is_file():
+            if not path:
                 continue
             key = os.path.normcase(os.path.abspath(path))
-            if key not in seen:
-                seen.add(key)
-                paths.append(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            if not Path(path).is_file() and not self._find_verification_base64(path):
+                continue
+            paths.append(path)
         return paths
 
     def _show_verification_path(self, path: str, row: dict[str, Any] | None = None) -> None:
-        paths = self._verification_paths()
         if not path or not Path(path).is_file():
+            fallback_id = path or str(
+                (row or {}).get("_source_hash", "")
+                or (row or {}).get("_source_file", "")
+                or "cached"
+            )
+            normalized = (
+                os.path.normcase(os.path.abspath(path))
+                if path else fallback_id
+            )
+            current_normalized = (
+                os.path.normcase(os.path.abspath(self.verification_path))
+                if self.verification_path and path
+                else self.verification_path
+            )
+            ok = True
+            if current_normalized != normalized or self.verification_viewer.source.isNull():
+                # 仅在当前未加载该缓存图时才查找并解码 base64
+                encoded = self._find_verification_base64(path, row)
+                if encoded:
+                    ok, _err = self.verification_viewer.load_base64_image(encoded)
+                else:
+                    ok = False
+            if ok and not self.verification_viewer.source.isNull():
+                self.verification_path = path or fallback_id
+                self.verification_position.setText("缓存图（原图已移动）")
+                source_name = (
+                    Path(path).name
+                    if path else str((row or {}).get("_source_file", "") or "未知文件")
+                )
+                self.verification_source_name.setText(source_name)
+                self.verification_line.setText(
+                    f"当前行：{row.get('label', '—')}" if row is not None else "当前行：—"
+                )
+                rect = row.get("_source_rect") if row is not None else None
+                if not isinstance(rect, QRect) and row is not None:
+                    rect = self._estimated_text_rect(row, self.verification_viewer.source.width())
+                    row["_source_rect"] = rect
+                self.verification_viewer.set_highlight(rect if isinstance(rect, QRect) else None)
+                return
             self.verification_path = ""
             self.verification_viewer.set_pixmap(QPixmap())
             self.verification_position.setText("无可用原图")
@@ -2779,38 +2956,96 @@ class OCRPage(QWidget):
             self.verification_line.setText(
                 f"当前行：{row.get('label', '—')}" if row is not None else "当前行：—"
             )
-            self.verification_previous.setEnabled(False)
-            self.verification_next.setEnabled(False)
             return
+
         normalized = os.path.normcase(os.path.abspath(path))
-        index = next(
-            (i for i, item in enumerate(paths)
-             if os.path.normcase(os.path.abspath(item)) == normalized),
-            0,
-        )
         current_normalized = (
             os.path.normcase(os.path.abspath(self.verification_path))
-            if self.verification_path else ""
+            if self.verification_path and Path(self.verification_path).is_file() else ""
         )
-        if current_normalized != normalized:
+        if current_normalized != normalized or self.verification_viewer.source.isNull():
             reader = QImageReader(path)
             reader.setAutoTransform(True)
             image = reader.read()
             pixmap = QPixmap.fromImage(image) if not image.isNull() else QPixmap()
             self.verification_viewer.set_pixmap(pixmap)
             self.verification_path = path if not pixmap.isNull() else ""
+            paths = self._verification_paths()
+            index = next(
+                (i for i, item in enumerate(paths)
+                 if os.path.normcase(os.path.abspath(item)) == normalized),
+                0,
+            )
+            self.verification_position.setText(f"第 {index + 1}/{max(1, len(paths))} 张")
+            self.verification_source_name.setText(Path(path).name)
         rect = row.get("_source_rect") if row is not None else None
         if not isinstance(rect, QRect) and row is not None:
-            rect = self._estimated_text_rect(row)
+            rect = self._estimated_text_rect(row, self.verification_viewer.source.width())
+            row["_source_rect"] = rect
         self.verification_viewer.set_highlight(rect if isinstance(rect, QRect) else None)
-        self.verification_position.setText(f"第 {index + 1}/{len(paths)} 张")
-        self.verification_source_name.setText(Path(path).name)
         self.verification_line.setText(
             f"当前行：{row.get('label', '—')}" if row is not None else "当前行：—"
         )
-        enabled = len(paths) > 1
-        self.verification_previous.setEnabled(enabled)
-        self.verification_next.setEnabled(enabled)
+
+    def _find_verification_base64(
+        self, path: str, row: dict[str, Any] | None = None
+    ) -> str:
+        """通过路径、image_hash 或文件名在 OCR 缓存与拼接缓存中查找对应的 base64 图片数据。"""
+        if not getattr(self.repository.image_store, "images", None):
+            self.repository.image_store.load()
+        cache = self.repository.get("ocr_cache", {}) or {}
+        target = os.path.normcase(os.path.abspath(path)) if path else ""
+
+        # 收集候选 image_hash 和文件名
+        digest = str((row or {}).get("_source_hash", "") or "")
+        source_file = str((row or {}).get("_source_file", "") or "")
+        if not source_file and path:
+            source_file = Path(path).name
+        source_index = int((row or {}).get("_source_index", -1))
+        if not digest and 0 <= source_index < len(self.results):
+            digest = str(self.results[source_index].get("image_hash", "") or "")
+        if not digest and target:
+            for result in self.results:
+                result_path = str(result.get("path", "") or "")
+                if result_path and os.path.normcase(os.path.abspath(result_path)) == target:
+                    digest = str(result.get("image_hash", "") or "")
+                    if digest:
+                        break
+
+        # 1. 优先通过路径或 image_hash 精确匹配 OCR 缓存
+        for cache_key, value in cache.items():
+            if not isinstance(value, dict):
+                continue
+            cached_path = str(value.get("path", "") or "")
+            path_match = bool(
+                target and cached_path
+                and os.path.normcase(os.path.abspath(cached_path)) == target
+            )
+            hash_match = bool(digest and str(value.get("hash", "") or "") == digest)
+            if path_match or hash_match:
+                image_key = self.repository.ocr_image_key(str(cache_key))
+                encoded = self.repository.image_data(image_key)
+                if encoded:
+                    return encoded
+
+        # 2. 检查拼接/裁剪/截图缓存
+        if path:
+            merge_key = self.repository.merge_image_key(path)
+            encoded = self.repository.image_data(merge_key)
+            if encoded:
+                return encoded
+
+        # 3. 兜底按文件名匹配 OCR 缓存
+        if source_file:
+            for cache_key, value in cache.items():
+                if not isinstance(value, dict):
+                    continue
+                if str(value.get("file", "") or "") == source_file:
+                    image_key = self.repository.ocr_image_key(str(cache_key))
+                    encoded = self.repository.image_data(image_key)
+                    if encoded:
+                        return encoded
+        return ""
 
     def _sync_verification_from_table(self) -> None:
         if (
@@ -2819,40 +3054,13 @@ class OCRPage(QWidget):
         ):
             return
         row_index = self.table.currentRow()
+        selected = self._selected_rows()
+        if selected and row_index not in selected:
+            row_index = selected[-1]
         if not 0 <= row_index < len(self.rows):
             return
         row = self.rows[row_index]
         self._show_verification_path(str(row.get("_source_path", "") or ""), row)
-
-    def _shift_verification_image(self, delta: int) -> None:
-        paths = self._verification_paths()
-        if not paths:
-            return
-        normalized = (
-            os.path.normcase(os.path.abspath(self.verification_path))
-            if self.verification_path else ""
-        )
-        current = next(
-            (i for i, item in enumerate(paths)
-             if os.path.normcase(os.path.abspath(item)) == normalized),
-            0,
-        )
-        target_path = paths[(current + delta) % len(paths)]
-        target_key = os.path.normcase(os.path.abspath(target_path))
-        row_index = next(
-            (i for i, row in enumerate(self.rows)
-             if row.get("_source_path")
-             and os.path.normcase(os.path.abspath(str(row["_source_path"]))) == target_key),
-            -1,
-        )
-        if row_index >= 0:
-            self.table.selectRow(row_index)
-            self.table.setCurrentCell(row_index, 0)
-            item = self.table.item(row_index, 0)
-            if item is not None:
-                self.table.scrollToItem(item, QAbstractItemView.ScrollHint.PositionAtCenter)
-        else:
-            self._show_verification_path(target_path)
 
     def _verification_image_double_clicked(self, display_point: QPoint) -> None:
         source = self.verification_viewer.source
@@ -2886,8 +3094,8 @@ class OCRPage(QWidget):
             ) ** 2,
         )
         self.table.selectRow(row_index)
-        self.table.setCurrentCell(row_index, 0)
-        item = self.table.item(row_index, 0)
+        self.table.setCurrentCell(row_index, self.LABEL_COLUMN)
+        item = self.table.item(row_index, self.LABEL_COLUMN)
         if item is not None:
             self.table.scrollToItem(item, QAbstractItemView.ScrollHint.PositionAtCenter)
 
@@ -3288,7 +3496,7 @@ class OCRPage(QWidget):
         self._populate_results()
         if self.rows:
             self.table.selectRow(0)
-            self.table.setCurrentCell(0, 0)
+            self.table.setCurrentCell(0, self.LABEL_COLUMN)
         self.start_button.setEnabled(True)
         failures = sum(bool(r.get("error") or r.get("skipped")) for r in results)
         self.statusChanged.emit("done", f"识别完成 · {len(self.rows)} 行")
@@ -3316,12 +3524,20 @@ class OCRPage(QWidget):
         for source_index, result in enumerate(results):
             source_path = str(result.get("path", "") or "")
             source_file = str(result.get("file", "") or "")
+            source_hash = str(result.get("image_hash", "") or "")
             boxes = result.get("boxes", []) or []
             if not isinstance(boxes, (list, tuple)):
                 boxes = []
             image_width = 0
             if source_path and Path(source_path).is_file():
                 image_width = QImageReader(source_path).size().width()
+            elif source_path or source_hash:
+                encoded = self._find_verification_base64(
+                    source_path,
+                    {"_source_index": source_index, "_source_hash": source_hash, "_source_file": source_file},
+                )
+                if encoded:
+                    image_width = GalleryImageView.pixmap_from_base64(encoded).width()
             for source_line, line in enumerate(result.get("lines", []) or []):
                 row = parse_line(line)
                 box = boxes[source_line] if source_line < len(boxes) else None
@@ -3335,6 +3551,7 @@ class OCRPage(QWidget):
                 row["_source_line"] = source_line
                 row["_source_path"] = source_path
                 row["_source_file"] = source_file
+                row["_source_hash"] = source_hash
                 row["_source_rect"] = self._estimated_text_rect(row, image_width)
                 rows.append(row)
         return rows
@@ -3368,7 +3585,7 @@ class OCRPage(QWidget):
         self._populate_results()
         if self.rows:
             self.table.selectRow(0)
-            self.table.setCurrentCell(0, 0)
+            self.table.setCurrentCell(0, self.LABEL_COLUMN)
         self._switch_step(0)
         self.step_buttons[0].setChecked(True)
         self.statusChanged.emit("done", f"已复制并解析 · {len(self.rows)} 行")
@@ -3456,7 +3673,7 @@ class OCRPage(QWidget):
         row_keys = (
             "label", "y", "x", "width", "height", "confidence", "group",
             "category", "category_key", "marked", "_source_index", "_source_line",
-            "_source_path", "_source_file", "_source_box_exact",
+            "_source_path", "_source_file", "_source_hash", "_source_box_exact",
         )
         rows = []
         for row in self.rows:
@@ -3517,6 +3734,7 @@ class OCRPage(QWidget):
                 "_source_line": int(number(saved.get("_source_line"))),
                 "_source_path": str(saved.get("_source_path", "")),
                 "_source_file": str(saved.get("_source_file", "")),
+                "_source_hash": str(saved.get("_source_hash", "")),
                 "_source_box_exact": bool(saved.get("_source_box_exact", False)),
             }
             image_width = (
@@ -3551,7 +3769,7 @@ class OCRPage(QWidget):
         self._switch_step(1)
         if self.rows:
             self.table.selectRow(0)
-            self.table.setCurrentCell(0, 0)
+            self.table.setCurrentCell(0, self.LABEL_COLUMN)
         self.statusChanged.emit("done", f"已恢复分类表历史 · {len(self.rows)} 条")
         self.dataChanged.emit()
 
@@ -3582,9 +3800,13 @@ class OCRPage(QWidget):
             "QTableWidget {"
             f"font-size:{font_size}pt;"
             "font-weight:bold;"
+            "selection-background-color:#FFE58A;"
             "}"
             "QTableWidget::item {"
             f"font-size:{font_size}pt;"
+            "}"
+            "QTableWidget::item:selected {"
+            "background-color:#FFE58A;"
             "}"
         )
 
@@ -3642,7 +3864,8 @@ class OCRPage(QWidget):
         selection = self.table.selectionModel()
         if selection is None:
             return
-        index = self.table.model().index(row_index, 5)
+        index = self.table.model().index(row_index, self.GROUP_COLUMN)
+        selection.setCurrentIndex(index, QItemSelectionModel.SelectionFlag.NoUpdate)
         if (
             modifiers & Qt.KeyboardModifier.ShiftModifier
             and self._selection_anchor_row is not None
@@ -3658,7 +3881,6 @@ class OCRPage(QWidget):
                 flags |= QItemSelectionModel.SelectionFlag.ClearAndSelect
                 self._selection_anchor_row = row_index
             selection.select(index, flags)
-        selection.setCurrentIndex(index, QItemSelectionModel.SelectionFlag.NoUpdate)
         self.table.setFocus(Qt.FocusReason.MouseFocusReason)
 
     def _select_row_range(self, first_row: int, last_row: int) -> None:
@@ -3666,6 +3888,7 @@ class OCRPage(QWidget):
         selection = self.table.selectionModel()
         if selection is None:
             return
+        self.table.blockSignals(True)
         selection.clearSelection()
         flags = (
             QItemSelectionModel.SelectionFlag.Select
@@ -3673,11 +3896,13 @@ class OCRPage(QWidget):
         )
         start, end = sorted((first_row, last_row))
         for row_index in range(start, end + 1):
-            selection.select(self.table.model().index(row_index, 0), flags)
+            selection.select(self.table.model().index(row_index, self.LABEL_COLUMN), flags)
+        self.table.blockSignals(False)
+        self._sync_verification_from_table()
 
     def _activate_group_cell_for_record(self, clicked_index) -> None:
         """Make the selected row's group cell current after a normal cell click."""
-        if not clicked_index.isValid() or clicked_index.column() == 5:
+        if not clicked_index.isValid() or clicked_index.column() == self.GROUP_COLUMN:
             return
         row_index = clicked_index.row()
         if not 0 <= row_index < self.table.rowCount():
@@ -3695,7 +3920,7 @@ class OCRPage(QWidget):
             self._selection_anchor_row = row_index
         elif self._selection_anchor_row is None:
             self._selection_anchor_row = row_index
-        group_index = self.table.model().index(row_index, 5)
+        group_index = self.table.model().index(row_index, self.GROUP_COLUMN)
         selection.setCurrentIndex(
             group_index,
             QItemSelectionModel.SelectionFlag.NoUpdate,
@@ -3724,7 +3949,7 @@ class OCRPage(QWidget):
         self.statusChanged.emit("done", f"第 {row_index + 1} 行已设置为 {group} 组")
 
     def _table_row_token(self, row_index: int) -> int | None:
-        item = self.table.item(row_index, 0)
+        item = self.table.item(row_index, self.LABEL_COLUMN)
         if item is None:
             return None
         value = item.data(Qt.ItemDataRole.UserRole)
@@ -3737,8 +3962,8 @@ class OCRPage(QWidget):
 
     def _update_table_row(self, row_index: int, row: dict[str, Any], create: bool = False) -> None:
         values = [
-            row["label"], row["y"], row["x"], row["height"], row["confidence"],
-            row["group"], row.get("category", "未分类"),
+            row.get("category", "未分类"), row["label"], row["y"], row["x"],
+            row["height"], row["confidence"], row["group"],
         ]
         category_color = QColor(self.category_colors.get(str(row.get("category", "未分类")), ""))
         background = QColor("#FFF3B0") if row.get("marked", False) else (
@@ -3752,12 +3977,15 @@ class OCRPage(QWidget):
             if create or item is None:
                 item = QTableWidgetItem()
                 self.table.setItem(row_index, column, item)
-            item.setData(Qt.ItemDataRole.UserRole, id(row) if column == 0 else None)
+            item.setData(
+                Qt.ItemDataRole.UserRole,
+                id(row) if column == self.LABEL_COLUMN else None,
+            )
             item.setText(str(value))
             item.setBackground(QBrush(QColor("#FFF4C2")) if low_confidence else (
                 QBrush(background) if background.isValid() else QBrush()
             ))
-            if column == 0:
+            if column == self.LABEL_COLUMN:
                 style = self._font_style_for_label(str(row.get("label", "")))
                 if style:
                     item.setForeground(QColor(str(style.get("color", "#17191C"))))
@@ -3769,20 +3997,22 @@ class OCRPage(QWidget):
                     item.setFont(font)
                 elif str(row.get("group", "")) == "C":
                     item.setForeground(QColor(GROUP_C_GREEN))
+                elif str(row.get("group", "")) == "D":
+                    item.setForeground(QColor(GROUP_D_LIGHT_BLUE))
                 else:
                     item.setForeground(QColor("#17191C"))
-            if column == 4:
+            if column == self.CONFIDENCE_COLUMN:
                 item.setText(f"● {confidence:g}" if low_confidence else str(value))
                 if low_confidence:
                     item.setForeground(QColor("#C62828"))
-            if column == 6:
+            if column == self.CATEGORY_COLUMN:
                 item.setToolTip(str(row.get("category_key", "数据区")))
-            if column == 5:
+            if column == self.GROUP_COLUMN:
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        group_widget = self.table.cellWidget(row_index, 5)
+        group_widget = self.table.cellWidget(row_index, self.GROUP_COLUMN)
         if not isinstance(group_widget, GroupCellButton) or create:
             self.table.setCellWidget(
-                row_index, 5,
+                row_index, self.GROUP_COLUMN,
                 self._create_group_button(row_index, str(row.get("group", "B"))),
             )
         else:
@@ -3855,7 +4085,7 @@ class OCRPage(QWidget):
         confidence_threshold = float(self.repository.get("conf_threshold", 0) or 0)
         for row_index, row in enumerate(self.rows):
             category = str(row.get("category", "未分类"))
-            category_item = self.table.item(row_index, 6)
+            category_item = self.table.item(row_index, self.CATEGORY_COLUMN)
             if category_item is not None:
                 category_item.setText(category)
                 category_item.setToolTip(str(row.get("category_key", "数据区")))
@@ -3891,7 +4121,7 @@ class OCRPage(QWidget):
         self.table.setUpdatesEnabled(False)
         self.table.blockSignals(True)
         for row_index, row in enumerate(self.rows):
-            item = self.table.item(row_index, 6)
+            item = self.table.item(row_index, self.CATEGORY_COLUMN)
             if item is None:
                 continue
             token = id(row)
@@ -3903,17 +4133,17 @@ class OCRPage(QWidget):
             except ValueError:
                 item.setData(Qt.ItemDataRole.DisplayRole, category)
 
-        self.table.sortItems(6, Qt.SortOrder.AscendingOrder)
+        self.table.sortItems(self.CATEGORY_COLUMN, Qt.SortOrder.AscendingOrder)
         sorted_rows: list[dict[str, Any]] = []
         for row_index in range(self.table.rowCount()):
-            item = self.table.item(row_index, 6)
+            item = self.table.item(row_index, self.CATEGORY_COLUMN)
             token = int(item.data(Qt.ItemDataRole.UserRole) or 0) if item is not None else 0
             row = rows_by_token.get(token)
             if row is not None:
                 sorted_rows.append(row)
             if item is not None:
                 item.setData(Qt.ItemDataRole.UserRole, None)
-            group_widget = self.table.cellWidget(row_index, 5)
+            group_widget = self.table.cellWidget(row_index, self.GROUP_COLUMN)
             if isinstance(group_widget, GroupCellButton):
                 group_widget._row = row_index
         if len(sorted_rows) == len(self.rows):
@@ -3938,7 +4168,7 @@ class OCRPage(QWidget):
         index = item.row()
         if index >= len(self.rows):
             return
-        keys = ["label", "y", "x", "height", "confidence", "group", "category"]
+        keys = ["category", "label", "y", "x", "height", "confidence", "group"]
         key = keys[item.column()]
         try:
             value = item.text() if key in {"label", "group", "category"} else float(item.text())
@@ -4250,11 +4480,17 @@ class OCRPage(QWidget):
                         item_font.setPointSize(size)
                         item.setFont(item_font)
             for row in range(self.table.rowCount()):
-                widget = self.table.cellWidget(row, 5)
+                widget = self.table.cellWidget(row, self.GROUP_COLUMN)
                 if isinstance(widget, GroupCellButton):
                     widget.setFont(QFont("Microsoft YaHei UI", size, QFont.Weight.Bold))
                     widget.setStyleSheet(self._group_button_style(size))
             self.table.viewport().update()
+        if hasattr(self, "verification_line"):
+            line_size = max(18, size + 6)
+            self.verification_line.setStyleSheet(
+                "background:#FFFFFF;border:1px solid #D1D5DB;border-radius:8px;"
+                f"padding:10px 14px;color:#111827;font-size:{line_size}px;font-weight:700;"
+            )
         if hasattr(self, "report"):
             self.report.setFont(QFont("Microsoft YaHei UI", size, QFont.Weight.Bold))
             self.report.setStyleSheet(
@@ -4896,7 +5132,7 @@ class OCRPage(QWidget):
         flags = QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows
         for index in indices:
             if 0 <= int(index) < self.table.rowCount():
-                selection.select(self.table.model().index(int(index), 0), flags)
+                selection.select(self.table.model().index(int(index), self.LABEL_COLUMN), flags)
 
     def _selected_rows(self) -> list[int]:
         model = self.table.selectionModel()
@@ -4930,9 +5166,17 @@ class OCRPage(QWidget):
         else:
             target = max(0, min(row_count - 1, current + direction))
         self._selection_anchor_row = target
+        self.table.blockSignals(True)
         self._select_rows([target])
-        self.table.setCurrentCell(target, 0)
-        item = self.table.item(target, 0)
+        selection = self.table.selectionModel()
+        if selection is not None:
+            selection.setCurrentIndex(
+                self.table.model().index(target, self.LABEL_COLUMN),
+                QItemSelectionModel.SelectionFlag.NoUpdate,
+            )
+        self.table.blockSignals(False)
+        self.table.viewport().update()
+        item = self.table.item(target, self.LABEL_COLUMN)
         if item is not None:
             self.table.scrollToItem(item, QAbstractItemView.ScrollHint.EnsureVisible)
         self._sync_verification_from_table()
@@ -5010,7 +5254,7 @@ class OCRPage(QWidget):
             affected_rows.update((old, new))
         for row_index in sorted(affected_rows):
             self.table.setCellWidget(
-                row_index, 5,
+                row_index, self.GROUP_COLUMN,
                 self._create_group_button(
                     row_index, str(self.rows[row_index].get("group", "B"))
                 ),
@@ -5100,7 +5344,7 @@ class OCRPage(QWidget):
         for index in indices:
             self.rows[index]["category"] = new_category
             self.rows[index]["category_key"] = new_category
-            item = self.table.item(index, 6)
+            item = self.table.item(index, self.CATEGORY_COLUMN)
             if item is not None:
                 item.setText(new_category)
                 item.setToolTip(new_category)
@@ -5121,17 +5365,22 @@ class OCRPage(QWidget):
         self.table.blockSignals(True)
         for index in changed_indices:
             self.rows[index]["group"] = group
-            group_item = self.table.item(index, 5)
+            group_item = self.table.item(index, self.GROUP_COLUMN)
             if group_item is not None:
                 group_item.setText(group)
-            group_widget = self.table.cellWidget(index, 5)
+            group_widget = self.table.cellWidget(index, self.GROUP_COLUMN)
             if isinstance(group_widget, GroupCellButton):
                 group_widget.blockSignals(True)
                 group_widget.setCurrentText(group)
                 group_widget.blockSignals(False)
-            label_item = self.table.item(index, 0)
+            label_item = self.table.item(index, self.LABEL_COLUMN)
             if label_item is not None and not self._font_style_for_label(str(self.rows[index].get("label", ""))):
-                label_item.setForeground(QColor(GROUP_C_GREEN if group == "C" else "#17191C"))
+                label_color = (
+                    GROUP_C_GREEN if group == "C" else
+                    GROUP_D_LIGHT_BLUE if group == "D" else
+                    "#17191C"
+                )
+                label_item.setForeground(QColor(label_color))
         self.table.blockSignals(False)
         self.table.viewport().update()
         self._select_rows(indices)
@@ -6198,9 +6447,14 @@ class HistoryPage(QWidget):
                      and Path(str(record.get("path", ""))).is_file()),
                     None,
                 )
+            if cached is None:
+                cached = next(
+                    (record for record in cache_records
+                     if file_name and str(record.get("file", "")) == file_name),
+                    None,
+                )
             path = str((cached or {}).get("path", "") or "")
-            if path and not Path(path).is_file():
-                path = ""
+            resolved_digest = digest or str((cached or {}).get("hash", "") or "")
             results.append({
                 "file": file_name,
                 "path": path,
@@ -6211,7 +6465,7 @@ class HistoryPage(QWidget):
                 ),
                 "count": len(lines),
                 "cached": True,
-                "image_hash": digest,
+                "image_hash": resolved_digest,
             })
         return results
 
@@ -6900,11 +7154,14 @@ class GalleryPage(QWidget):
         open_button.clicked.connect(self.open_selected)
         locate_button = QPushButton("定位文件")
         locate_button.clicked.connect(self.locate_selected)
+        relink_button = QPushButton("重新定位原图")
+        relink_button.clicked.connect(self.relink_selected)
         remove_button = QPushButton("移出预览")
         remove_button.clicked.connect(self.remove_selected)
         top.addWidget(refresh_button)
         top.addWidget(open_button)
         top.addWidget(locate_button)
+        top.addWidget(relink_button)
         top.addWidget(remove_button)
         layout.addLayout(top)
         self.summary = muted_label("")
@@ -7006,9 +7263,9 @@ class GalleryPage(QWidget):
             image_key = self.repository.ocr_image_key(str(cache_key))
             if path.exists() and not self.repository.has_image_data(image_key):
                 self.repository.save_image_from_file(image_key, str(path))
-            if not path.exists() and not self.repository.has_image_data(image_key):
+            missing_cache = not self.repository.has_image_data(image_key)
+            if missing_cache:
                 stale_count += 1
-                continue
             path_key = os.path.normcase(os.path.abspath(str(path)))
             if path_key in seen_paths:
                 continue
@@ -7017,6 +7274,7 @@ class GalleryPage(QWidget):
             record["_cache_key"] = cache_key
             record["_image_cache_key"] = image_key
             record["_record_kind"] = "ocr"
+            record["_missing_source"] = missing_cache
             self.all_records.append(record)
         source_labels = {"file": "文件拼接", "screenshot": "截图拼接", "crop": "裁剪拼接"}
         merge_history = list(self.repository.get("merge_history", []) or [])
@@ -7027,9 +7285,9 @@ class GalleryPage(QWidget):
             image_key = self.repository.merge_image_key(str(path))
             if path.exists() and not self.repository.has_image_data(image_key):
                 self.repository.save_image_from_file(image_key, str(path))
-            if not path.exists() and not self.repository.has_image_data(image_key):
+            missing_cache = not self.repository.has_image_data(image_key)
+            if missing_cache:
                 stale_count += 1
-                continue
             path_key = os.path.normcase(os.path.abspath(str(path)))
             if path_key in seen_paths:
                 continue
@@ -7046,6 +7304,7 @@ class GalleryPage(QWidget):
                 "_record_kind": "merge",
                 "_merge_index": index,
                 "_image_cache_key": image_key,
+                "_missing_source": missing_cache,
             })
         self.all_records.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
         try:
@@ -7071,7 +7330,7 @@ class GalleryPage(QWidget):
         ]
         self._sync_day_navigation()
         stale_text = (
-            f"；另有 {self._stale_count} 条旧记录的原图片已被移动或删除"
+            f"；另有 {self._stale_count} 条旧记录尚未保存图片缓存"
             if self._stale_count else ""
         )
         self.summary.setText(
@@ -7085,26 +7344,14 @@ class GalleryPage(QWidget):
                 cell = QTableWidgetItem(str(value))
                 cell.setFlags(cell.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 if column == 0:
-                    path = Path(str(item["path"]))
-                    if path.exists():
-                        reader = QImageReader(str(path))
-                        reader.setAutoTransform(True)
-                        source_size = reader.size()
-                        if source_size.isValid():
-                            reader.setScaledSize(source_size.scaled(
-                                QSize(48, 48), Qt.AspectRatioMode.KeepAspectRatio,
-                            ))
-                        thumb = reader.read()
-                        pixmap = QPixmap.fromImage(thumb) if not thumb.isNull() else QPixmap()
-                    else:
-                        pixmap = GalleryImageView.pixmap_from_base64(
-                            self.repository.image_data(str(item.get("_image_cache_key", "")))
+                    pixmap = GalleryImageView.pixmap_from_base64(
+                        self.repository.image_data(str(item.get("_image_cache_key", "")))
+                    )
+                    if not pixmap.isNull():
+                        pixmap = pixmap.scaled(
+                            QSize(48, 48), Qt.AspectRatioMode.KeepAspectRatio,
+                            Qt.TransformationMode.SmoothTransformation,
                         )
-                        if not pixmap.isNull():
-                            pixmap = pixmap.scaled(
-                                QSize(48, 48), Qt.AspectRatioMode.KeepAspectRatio,
-                                Qt.TransformationMode.SmoothTransformation,
-                            )
                     if not pixmap.isNull():
                         cell.setIcon(QIcon(pixmap))
                 self.table.setItem(row, column, cell)
@@ -7167,26 +7414,26 @@ class GalleryPage(QWidget):
             return
         record = self.records[row]
         path = str(record.get("path", ""))
-        from_cache = not Path(path).exists()
-        if from_cache:
-            ok, error = self.viewer.load_base64_image(
-                self.repository.image_data(str(record.get("_image_cache_key", "")))
+        encoded = self.repository.image_data(str(record.get("_image_cache_key", "")))
+        if not encoded:
+            self.viewer.clear_image("没有可用的缓存原图")
+            self.preview_title.setText(str(record.get("file") or Path(path).name))
+            self.preview_info.setText(
+                f"这条旧记录未保存 Base64 缓存。\n{path}\n"
+                "请点击“重新定位原图”选择该图片，以创建缓存。"
             )
-        else:
-            ok, error = self.viewer.load_image(path)
+            return
+        ok, error = self.viewer.load_base64_image(encoded)
         self.preview_title.setText(str(record.get("file") or Path(path).name))
         if not ok:
             self.preview_info.setText(f"无法预览：{error}\n{path}")
             return
         try:
-            file_size = (
-                Path(path).stat().st_size if not from_cache
-                else len(base64.b64decode(self.repository.image_data(str(record.get("_image_cache_key", "")))))
-            )
+            file_size = len(base64.b64decode(encoded))
             size_text = f"{file_size / 1024:.1f} KB" if file_size < 1024 * 1024 else f"{file_size / 1024 / 1024:.1f} MB"
         except (OSError, KeyError, ValueError, TypeError):
             size_text = "未知大小"
-        source_text = "已从本地缓存恢复" if from_cache else "原始文件"
+        source_text = "独立 Base64 缓存"
         self.preview_info.setText(
             f"{self.viewer.source.width()} × {self.viewer.source.height()} px  ·  {size_text}  ·  "
             f"{record.get('display_type') or MODE_NAMES.get(record.get('type'), record.get('type', ''))}  ·  "
@@ -7203,17 +7450,81 @@ class GalleryPage(QWidget):
     def open_selected(self, *_args) -> None:
         row = self.table.currentRow()
         if 0 <= row < len(self.records):
-            QDesktopServices.openUrl(QUrl.fromLocalFile(self.records[row]["path"]))
+            path = str(self.records[row]["path"])
+            if not Path(path).exists():
+                QMessageBox.information(self, "原图已移动", "原路径已失效，请使用“重新定位原图”选择移动后的文件。")
+                return
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def locate_selected(self) -> None:
         row = self.table.currentRow()
         if not 0 <= row < len(self.records):
             return
         path = Path(self.records[row]["path"])
+        if not path.exists():
+            QMessageBox.information(self, "原图已移动", "原路径已失效，请使用“重新定位原图”选择移动后的文件。")
+            return
         if sys.platform == "win32":
             subprocess.Popen(["explorer", "/select,", str(path)])
         else:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.parent)))
+
+    def relink_selected(self) -> None:
+        """Reconnect an old preview record to a source file the user moved."""
+        row = self.table.currentRow()
+        if not 0 <= row < len(self.records):
+            QMessageBox.information(self, "重新定位原图", "请先在左侧选择一条图片记录。")
+            return
+        record = self.records[row]
+        previous_path = str(record.get("path", ""))
+        start_dir = str(Path(previous_path).parent) if previous_path else str(APP_DIR)
+        selected_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择移动后的原图",
+            start_dir,
+            "图片文件 (*.jpg *.jpeg *.png *.bmp *.tif *.tiff);;所有文件 (*.*)",
+        )
+        if not selected_path:
+            return
+        if record.get("_record_kind") == "ocr":
+            expected_hash = str(record.get("hash", "") or "")
+            try:
+                actual_hash = image_hash(selected_path)
+            except OSError as exc:
+                QMessageBox.warning(self, "无法读取图片", str(exc))
+                return
+            if expected_hash and actual_hash != expected_hash:
+                QMessageBox.warning(
+                    self,
+                    "图片不匹配",
+                    "所选文件与这条 OCR 记录的原图内容不一致，未修改记录。",
+                )
+                return
+            cache = self.repository.get("ocr_cache", {}) or {}
+            cache_key = str(record.get("_cache_key", ""))
+            cached = cache.get(cache_key)
+            if not isinstance(cached, dict):
+                QMessageBox.warning(self, "重新定位失败", "找不到对应的 OCR 缓存记录。")
+                return
+            cached["path"] = selected_path
+            cached["file"] = Path(selected_path).name
+            self.repository.set("ocr_cache", cache)
+            self.repository.save_image_from_file(self.repository.ocr_image_key(cache_key), selected_path)
+        else:
+            history = list(self.repository.get("merge_history", []) or [])
+            index = int(record.get("_merge_index", -1))
+            if not 0 <= index < len(history) or not isinstance(history[index], dict):
+                QMessageBox.warning(self, "重新定位失败", "找不到对应的拼接记录。")
+                return
+            old_key = self.repository.merge_image_key(previous_path)
+            history[index]["output_path"] = selected_path
+            history[index]["desc"] = Path(selected_path).name
+            self.repository.set("merge_history", history)
+            self.repository.remove_image_data(old_key)
+            self.repository.save_image_from_file(self.repository.merge_image_key(selected_path), selected_path)
+
+        self.refresh()
+        QMessageBox.information(self, "重新定位成功", "已更新原图路径，并保存独立图片缓存；之后移动该文件仍可预览。")
 
     def remove_selected(self) -> None:
         row = self.table.currentRow()
@@ -8093,6 +8404,14 @@ class MainWindow(QMainWindow):
         self._responsive_key: tuple[int, int] | None = None
         self._responsive_ui_scale = 1.0
         self._build()
+        # Text-safe button widths increase the layout's true minimum width.
+        # Keep the window above that value so Qt never compresses controls
+        # into each other during a resize.
+        safe_size = self.minimumSizeHint()
+        self.setMinimumSize(
+            max(1000, safe_size.width()),
+            max(680, safe_size.height()),
+        )
 
     def _build(self) -> None:
         root = QWidget()
@@ -8376,6 +8695,7 @@ class MainWindow(QMainWindow):
         )
         self.ocr_page.top_notice_bar.setFixedWidth(toast_width)
         self.ocr_page.apply_layout_scale(x_scale, y_scale, ui_scale)
+        ensure_button_text_minimums(self)
         self._position_notice_toast()
 
     def _position_notice_toast(self) -> None:
@@ -8495,7 +8815,11 @@ def main() -> int:
     app.setWindowIcon(app_icon())
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
+    # Applies to the main window and to dialogs created later in the session.
+    app.button_text_minimum_size_filter = ButtonTextMinimumSizeFilter(app)
+    app.installEventFilter(app.button_text_minimum_size_filter)
     window = MainWindow()
+    ensure_button_text_minimums(window)
     center_main_window(window)
     window.show()
     apply_windows_taskbar_icon(window)
