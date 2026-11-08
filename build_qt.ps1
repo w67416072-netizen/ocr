@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf })]
     [string]$SplashImage,
@@ -32,8 +32,8 @@ if ($LASTEXITCODE -ne 0) {
 $SplashSource = (Resolve-Path -LiteralPath $SplashImage).Path
 $SplashExtension = [IO.Path]::GetExtension($SplashSource).ToLowerInvariant()
 
-if ($SplashExtension -notin @('.png', '.mp4')) {
-    throw '启动素材必须是 PNG 图片或 MP4 视频。'
+if ($SplashExtension -notin @('.png', '.apng', '.mp4')) {
+    throw '启动素材必须是 PNG、APNG 图片或 MP4 视频。'
 }
 
 $LoadingSource = $null
@@ -117,15 +117,9 @@ if ($LASTEXITCODE -ne 0) {
 # ============================================================
 
 foreach ($Name in @('ocr_data.json', '.env')) {
-
     $Source = Join-Path $ProjectDir $Name
-
     if (Test-Path -LiteralPath $Source) {
-
-        Copy-Item `
-            -LiteralPath $Source `
-            -Destination (Join-Path $Target $Name) `
-            -Force
+        Copy-Item -LiteralPath $Source -Destination (Join-Path $Target $Name) -Force
     }
 }
 
@@ -136,25 +130,25 @@ foreach ($Name in @('ocr_data.json', '.env')) {
 $ExportHistory = Join-Path $ProjectDir 'export_history_files'
 
 if (Test-Path -LiteralPath $ExportHistory) {
-
-    Copy-Item `
-        -LiteralPath $ExportHistory `
-        -Destination $Target `
-        -Recurse `
-        -Force
+    Copy-Item -LiteralPath $ExportHistory -Destination $Target -Recurse -Force
 }
 
 # ============================================================
 # 6. 复制启动图片或视频
 # ============================================================
 
- $SplashDestination = if ($SplashExtension -eq '.mp4') { 'opening.mp4' } else { 'opening.png' }
- $OtherSplashDestination = if ($SplashDestination -eq 'opening.mp4') { 'opening.png' } else { 'opening.mp4' }
- Remove-Item -LiteralPath (Join-Path $Target $OtherSplashDestination) -Force -ErrorAction SilentlyContinue
-Copy-Item `
-    -LiteralPath $SplashSource `
-    -Destination (Join-Path $Target $SplashDestination) `
-    -Force
+$SplashDestination = switch ($SplashExtension) {
+    '.mp4' { 'opening.mp4' }
+    '.apng' { 'opening.apng' }
+    default { 'opening.png' }
+}
+# Leave exactly one active opening asset in the distribution directory.
+foreach ($OpeningName in @('opening.png', 'opening.apng', 'opening.mp4')) {
+    if ($OpeningName -ne $SplashDestination) {
+        Remove-Item -LiteralPath (Join-Path $Target $OpeningName) -Force -ErrorAction SilentlyContinue
+    }
+}
+Copy-Item -LiteralPath $SplashSource -Destination (Join-Path $Target $SplashDestination) -Force
 
 # loading.png is displayed immediately while Windows loads an MP4 decoder.
 # Remove an older image when none was chosen for this build.
@@ -181,5 +175,4 @@ if ($LoadingSource) {
     Write-Host "Loading image: $LoadingDestination" -ForegroundColor Yellow
 }
 Write-Host ''
-Write-Host 'Replace opening.mp4 or opening.png to change the opening media.' -ForegroundColor Yellow
-```
+Write-Host 'Replace opening.mp4, opening.apng, or opening.png to change the opening media.' -ForegroundColor Yellow
