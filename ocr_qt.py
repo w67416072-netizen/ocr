@@ -1991,6 +1991,11 @@ class DownwardComboBox(QComboBox):
             ns = int(event.nativeScanCode())
             key = event.key()
             text = event.text()
+            keypad_group = ClassifierTable._keypad_digit_group(event)
+            if keypad_group is not None:
+                self.groupShortcutPressed.emit(keypad_group)
+                event.accept()
+                return
             if key in {Qt.Key.Key_Plus, Qt.Key.Key_Equal} or text in {"+", "＋", "="} or nk in {0x6B, 0xBB} or ns == 0x4E:
                 self.groupShortcutPressed.emit("D")
                 event.accept()
@@ -2107,6 +2112,26 @@ class ClassifierTable(QTableWidget):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     @staticmethod
+    def _keypad_digit_group(event) -> str | None:
+        """Map Numpad 1/2/3/0 (or main row 1/2/3/0 when not in an input field) to C/A/B/D."""
+        key = event.key()
+        text_value = event.text()
+        nk = int(event.nativeVirtualKey())
+        ns = int(event.nativeScanCode())
+        is_keypad = bool(event.modifiers() & Qt.KeyboardModifier.KeypadModifier)
+        # Numpad 1, 2, 3, 0 virtual keys (0x61, 0x62, 0x63, 0x60), hardware scan codes (0x4F, 0x50, 0x51, 0x52),
+        # or main/keypad digit keys 1, 2, 3, 0 when in browse mode.
+        if nk == 0x61 or ns == 0x4F or key == Qt.Key.Key_1 or text_value == "1" or (is_keypad and key == Qt.Key.Key_End):
+            return "C"
+        if nk == 0x62 or ns == 0x50 or key == Qt.Key.Key_2 or text_value == "2" or (is_keypad and key == Qt.Key.Key_Down):
+            return "A"
+        if nk == 0x63 or ns == 0x51 or key == Qt.Key.Key_3 or text_value == "3" or (is_keypad and key == Qt.Key.Key_PageDown):
+            return "B"
+        if nk == 0x60 or (ns == 0x52 and (is_keypad or key != Qt.Key.Key_Insert)) or key == Qt.Key.Key_0 or text_value == "0" or (is_keypad and key == Qt.Key.Key_Insert):
+            return "D"
+        return None
+
+    @staticmethod
     def _classification_key(event) -> tuple[str, Any] | None:
         modifiers = event.modifiers()
         key = event.key()
@@ -2119,11 +2144,18 @@ class ClassifierTable(QTableWidget):
         active_modifiers = modifiers & blocked
         if (
             active_modifiers == Qt.KeyboardModifier.ControlModifier
-            and key in {Qt.Key.Key_Up, Qt.Key.Key_Down}
+            and key in {Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_Left, Qt.Key.Key_Right}
         ):
-            return "cursor", -1 if key == Qt.Key.Key_Up else 1
+            return "cursor", -1 if key in {Qt.Key.Key_Up, Qt.Key.Key_Left} else 1
         if active_modifiers:
             return None
+        keypad_group = ClassifierTable._keypad_digit_group(event)
+        if keypad_group is not None:
+            return "group", keypad_group
+        if key == Qt.Key.Key_Left:
+            return "cursor", -1
+        if key == Qt.Key.Key_Right:
+            return "cursor", 1
         text_value = event.text()
         nk = int(event.nativeVirtualKey())
         ns = int(event.nativeScanCode())
@@ -2333,6 +2365,15 @@ class OCRPage(QWidget):
             return True
         if (
             event.type() == QEvent.Type.KeyPress
+            and hasattr(self, "verification_line")
+            and watched is self.verification_line
+            and event.key() == Qt.Key.Key_Escape
+        ):
+            self._finish_verification_line_edit()
+            event.accept()
+            return True
+        if (
+            event.type() == QEvent.Type.KeyPress
             and hasattr(self, "result_stack")
             and self.result_stack.currentIndex() == 1
             and self.isVisible()
@@ -2352,6 +2393,21 @@ class OCRPage(QWidget):
                         self.move_selection_cursor(int(action[1]))
                     event.accept()
                     return True
+                if action and action[0] == "move":
+                    if not event.isAutoRepeat():
+                        self.move_row(int(action[1]))
+                    event.accept()
+                    return True
+                if event.key() == Qt.Key.Key_Insert and not event.modifiers():
+                    if not event.isAutoRepeat():
+                        self.add_row()
+                    event.accept()
+                    return True
+                if event.key() == Qt.Key.Key_Delete and not event.modifiers():
+                    if not event.isAutoRepeat():
+                        self.delete_rows()
+                    event.accept()
+                    return True
                 native_key = int(event.nativeVirtualKey())
                 native_scan = int(event.nativeScanCode())
                 group = None
@@ -2366,9 +2422,6 @@ class OCRPage(QWidget):
                 if group is not None:
                     if not event.isAutoRepeat():
                         self.set_selected_group(group)
-                        self._show_top_notice(
-                            "done", f"快捷键已将选中记录修改为 {group} 组", 1800
-                        )
                     event.accept()
                     return True
         return super().eventFilter(watched, event)
@@ -2384,14 +2437,20 @@ class OCRPage(QWidget):
         )
 
     def _classifier_cell_editor_has_focus(self) -> bool:
-        """Detect a real in-cell editor instead of trusting the table's transient state."""
+        """Detect a real in-cell editor or any active text/number input field."""
+        focus = QApplication.focusWidget()
+        if focus is None:
+            return False
+        if isinstance(focus, (QLineEdit, QTextEdit, QSpinBox, QDoubleSpinBox, QDateEdit)):
+            return True
+        if isinstance(focus, QComboBox) and focus.isEditable():
+            return True
         if (
             not hasattr(self, "table")
             or self.table.state() != QAbstractItemView.State.EditingState
         ):
             return False
-        focus = QApplication.focusWidget()
-        if focus is None or focus in {self.table, self.table.viewport()}:
+        if focus in {self.table, self.table.viewport()}:
             return False
         if isinstance(focus, GroupCellButton):
             return False
@@ -2812,7 +2871,10 @@ class OCRPage(QWidget):
             shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             shortcut.activated.connect(handler)
         self.keypad_group_shortcuts = []
-        for sequence, group in (("Num++", "D"), ("Num+-", "C")):
+        for sequence, group in (
+            ("Num+1", "C"), ("Num+2", "A"), ("Num+3", "B"), ("Num+0", "D"),
+            ("Num++", "D"), ("Num+-", "C"),
+        ):
             shortcut = QShortcut(QKeySequence(sequence), table)
             shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             shortcut.activated.connect(
@@ -2858,20 +2920,92 @@ class OCRPage(QWidget):
                 tools.addWidget(button)
             layout.addLayout(tools)
 
-            self.verification_line = QLabel("当前行：—")
-            self.verification_line.setWordWrap(True)
-            self.verification_line.setTextInteractionFlags(
-                Qt.TextInteractionFlag.TextSelectableByMouse
-            )
+            line_row = QHBoxLayout()
+            line_row.setSpacing(10)
             font_config = self.repository.get("font_config", {}) or {}
             shared_size = int(font_config.get("font_size", 11) or 11)
             line_size = max(18, shared_size + 6)
-            self.verification_line.setStyleSheet(
-                "background:#FFFFFF;border:1px solid #D1D5DB;border-radius:8px;"
-                f"padding:10px 14px;color:#111827;font-size:{line_size}px;font-weight:700;"
+
+            line_box = QFrame()
+            line_box.setStyleSheet(
+                "QFrame {background:#FFFFFF;border:1px solid #D1D5DB;border-radius:8px;}"
+                "QLabel {border:0;background:transparent;font-weight:700;color:#374151;}"
             )
-            layout.addWidget(self.verification_line)
+            line_box_layout = QHBoxLayout(line_box)
+            line_box_layout.setContentsMargins(12, 6, 12, 6)
+            line_box_layout.setSpacing(6)
+            self.verification_line_prefix = QLabel("当前行：")
+            self.verification_line_prefix.setStyleSheet(
+                f"border:0;background:transparent;font-size:{max(14, shared_size + 2)}px;font-weight:700;color:#374151;"
+            )
+            line_box_layout.addWidget(self.verification_line_prefix)
+
+            self.verification_line = QLineEdit()
+            self.verification_line.setPlaceholderText("—")
+            self.verification_line.setEnabled(False)
+            self.verification_line.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+            self.verification_line.setToolTip("点击可直接修改当前行名称；按 Enter 或点击画面完成编辑")
+            self.verification_line.setStyleSheet(
+                "QLineEdit {border:1px solid transparent;border-radius:6px;background:transparent;"
+                f"padding:4px 8px;color:#111827;font-size:{line_size}px;font-weight:700;}}"
+                "QLineEdit:focus {border:1px solid #F4C400;background:#FFFDF5;}"
+            )
+            self.verification_line.textEdited.connect(self._verification_label_edited)
+            self.verification_line.returnPressed.connect(self._finish_verification_line_edit)
+            line_box_layout.addWidget(self.verification_line, 1)
+            line_row.addWidget(line_box, 1)
+
+            group_box = QFrame()
+            group_box.setStyleSheet(
+                "QFrame {background:#FFFFFF;border:1px solid #D1D5DB;border-radius:8px;}"
+                "QLabel {border:0;background:transparent;font-weight:700;color:#374151;}"
+            )
+            group_box_layout = QHBoxLayout(group_box)
+            group_box_layout.setContentsMargins(12, 6, 12, 6)
+            group_box_layout.setSpacing(8)
+            self.verification_group_label = QLabel("分组：")
+            self.verification_group_label.setStyleSheet(
+                f"border:0;background:transparent;font-size:{max(14, shared_size + 2)}px;font-weight:700;color:#374151;"
+            )
+            group_box_layout.addWidget(self.verification_group_label)
+            self.verification_group_combo = QComboBox()
+            self.verification_group_combo.addItems(list("ABCD"))
+            self.verification_group_combo.setToolTip("快捷键：1/-→C组  2→A组  3→B组  0/+→D组")
+            self.verification_group_combo.setMinimumWidth(84)
+            self.verification_group_combo.setMinimumHeight(36)
+            self.verification_group_combo.setEnabled(False)
+            self.verification_group_combo.setStyleSheet(
+                f"QComboBox {{font-size:{max(14, shared_size + 2)}px;font-weight:700;padding:0 10px;}}"
+            )
+            self.verification_group_combo.currentTextChanged.connect(
+                self._verification_group_changed
+            )
+            group_box_layout.addWidget(self.verification_group_combo)
+            line_row.addWidget(group_box)
+            layout.addLayout(line_row)
             footer = QHBoxLayout()
+            self.verification_add_button = QPushButton("添加条目")
+            self.verification_add_button.setToolTip("在当前条目附近新增一条记录（快捷键：Insert）")
+            self.verification_add_button.clicked.connect(self.add_row)
+            self.verification_delete_button = QPushButton("删除当前条目")
+            self.verification_delete_button.setToolTip("删除当前选中的记录（快捷键：Delete）")
+            self.verification_delete_button.setStyleSheet(
+                "QPushButton {color:#B42318;background:#FFF5F5;border:1px solid #F4B8B5;border-radius:8px;padding:0 14px;min-height:34px;font-weight:600;}"
+                "QPushButton:hover {background:#FFE8E8;border-color:#E89893;}"
+                "QPushButton:disabled {color:#A9ADB4;background:#F4F5F6;border-color:#ECEEF1;}"
+            )
+            self.verification_delete_button.clicked.connect(self.delete_rows)
+            footer.addWidget(self.verification_add_button)
+            footer.addWidget(self.verification_delete_button)
+
+            self.verification_notice_label = QLabel("")
+            self.verification_notice_label.setVisible(False)
+            self.verification_notice_timer = QTimer(dialog)
+            self.verification_notice_timer.setSingleShot(True)
+            self.verification_notice_timer.timeout.connect(
+                lambda: self.verification_notice_label.setVisible(False)
+            )
+            footer.addWidget(self.verification_notice_label, 1)
             footer.addStretch()
             close = QPushButton("关闭")
             close.clicked.connect(dialog.close)
@@ -2940,9 +3074,7 @@ class OCRPage(QWidget):
                     if path else str((row or {}).get("_source_file", "") or "未知文件")
                 )
                 self.verification_source_name.setText(source_name)
-                self.verification_line.setText(
-                    f"当前行：{row.get('label', '—')}" if row is not None else "当前行：—"
-                )
+                self._sync_verification_row_widgets(row)
                 rect = row.get("_source_rect") if row is not None else None
                 if not isinstance(rect, QRect) and row is not None:
                     rect = self._estimated_text_rect(row, self.verification_viewer.source.width())
@@ -2953,9 +3085,7 @@ class OCRPage(QWidget):
             self.verification_viewer.set_pixmap(QPixmap())
             self.verification_position.setText("无可用原图")
             self.verification_source_name.setText("该内容没有关联的本地图片")
-            self.verification_line.setText(
-                f"当前行：{row.get('label', '—')}" if row is not None else "当前行：—"
-            )
+            self._sync_verification_row_widgets(row)
             return
 
         normalized = os.path.normcase(os.path.abspath(path))
@@ -2983,9 +3113,7 @@ class OCRPage(QWidget):
             rect = self._estimated_text_rect(row, self.verification_viewer.source.width())
             row["_source_rect"] = rect
         self.verification_viewer.set_highlight(rect if isinstance(rect, QRect) else None)
-        self.verification_line.setText(
-            f"当前行：{row.get('label', '—')}" if row is not None else "当前行：—"
-        )
+        self._sync_verification_row_widgets(row)
 
     def _find_verification_base64(
         self, path: str, row: dict[str, Any] | None = None
@@ -3047,17 +3175,112 @@ class OCRPage(QWidget):
                         return encoded
         return ""
 
+    def _current_verification_row_index(self) -> int:
+        row_index = self.table.currentRow()
+        selected = self._selected_rows()
+        if selected and row_index not in selected:
+            row_index = selected[-1]
+        return row_index if 0 <= row_index < len(self.rows) else -1
+
+    def _sync_verification_row_widgets(self, row: dict[str, Any] | None) -> None:
+        if hasattr(self, "verification_line"):
+            self._verification_edit_snapshot_row_id = None
+            self.verification_line.blockSignals(True)
+            if row is not None:
+                label_text = str(row.get("label", ""))
+                if self.verification_line.text() != label_text:
+                    self.verification_line.setText(label_text)
+                self.verification_line.setEnabled(True)
+            else:
+                self.verification_line.clear()
+                self.verification_line.setEnabled(False)
+            self.verification_line.blockSignals(False)
+        if hasattr(self, "verification_group_combo"):
+            self.verification_group_combo.blockSignals(True)
+            if row is not None:
+                group = str(row.get("group", "B"))
+                self.verification_group_combo.setCurrentText(
+                    group if group in "ABCD" else "B"
+                )
+                self.verification_group_combo.setEnabled(True)
+            else:
+                self.verification_group_combo.setCurrentText("B")
+                self.verification_group_combo.setEnabled(False)
+            self.verification_group_combo.blockSignals(False)
+        if hasattr(self, "verification_delete_button"):
+            self.verification_delete_button.setEnabled(row is not None)
+
+    def _verification_label_edited(self, new_label: str) -> None:
+        row_index = self._current_verification_row_index()
+        if not 0 <= row_index < len(self.rows):
+            return
+        row = self.rows[row_index]
+        if str(row.get("label", "")) == new_label:
+            return
+        if getattr(self, "_verification_edit_snapshot_row_id", None) != id(row):
+            self._snapshot(redraw_plot=False)
+            self._verification_edit_snapshot_row_id = id(row)
+        row["label"] = new_label
+        self.table.blockSignals(True)
+        self._update_table_row(row_index, row)
+        self.table.blockSignals(False)
+        self.table.viewport().update()
+        if row.get("_source_path") and not row.get("_source_box_exact", False):
+            source_path = str(row["_source_path"])
+            image_width = (
+                QImageReader(source_path).size().width()
+                if Path(source_path).is_file()
+                else self.verification_viewer.source.width()
+            )
+            row["_source_rect"] = self._estimated_text_rect(row, image_width)
+            self.verification_viewer.set_highlight(row["_source_rect"])
+        self._update_report()
+
+    def _finish_verification_line_edit(self) -> None:
+        if hasattr(self, "verification_line"):
+            self.verification_line.clearFocus()
+        if hasattr(self, "verification_viewer"):
+            self.verification_viewer.setFocus()
+
+    def _show_verification_notice(
+        self, state: str, text: str, duration: int = 2200
+    ) -> None:
+        if not hasattr(self, "verification_notice_label"):
+            return
+        styles = {
+            "success": ("#ECFDF5", "#137A4A", "#A7E8CC", "✓"),
+            "done": ("#ECFDF5", "#137A4A", "#A7E8CC", "✓"),
+            "warning": ("#FFF7E6", "#A35B00", "#F3D19C", "⚠"),
+            "info": ("#EFF6FF", "#245FA8", "#BFDBFE", "ℹ"),
+            "error": ("#FFF1F1", "#B42318", "#F4B8B5", "✕"),
+        }
+        background, foreground, border, icon = styles.get(state, styles["info"])
+        self.verification_notice_timer.stop()
+        self.verification_notice_label.setText(f" {icon}  {text} ")
+        self.verification_notice_label.setStyleSheet(
+            f"background:{background};color:{foreground};border:1px solid {border};"
+            "border-radius:6px;padding:4px 10px;font-weight:700;"
+        )
+        self.verification_notice_label.setVisible(True)
+        self.verification_notice_timer.start(max(1000, int(duration)))
+
+    def _verification_group_changed(self, group: str) -> None:
+        if group not in "ABCD":
+            return
+        row_index = self._current_verification_row_index()
+        if row_index < 0:
+            return
+        self._group_combo_changed(row_index, group)
+
     def _sync_verification_from_table(self) -> None:
         if (
             not hasattr(self, "verification_dialog")
             or not self.verification_dialog.isVisible()
         ):
             return
-        row_index = self.table.currentRow()
-        selected = self._selected_rows()
-        if selected and row_index not in selected:
-            row_index = selected[-1]
-        if not 0 <= row_index < len(self.rows):
+        row_index = self._current_verification_row_index()
+        if row_index < 0:
+            self._sync_verification_row_widgets(None)
             return
         row = self.rows[row_index]
         self._show_verification_path(str(row.get("_source_path", "") or ""), row)
@@ -3204,10 +3427,12 @@ class OCRPage(QWidget):
                          undo_available: bool = False) -> None:
         styles = {
             "success": ("#ECFDF5", "#137A4A", "#A7E8CC", "✓"),
+            "done": ("#ECFDF5", "#137A4A", "#A7E8CC", "✓"),
             "warning": ("#FFF7E6", "#A35B00", "#F3D19C", "⚠"),
             "info": ("#EFF6FF", "#245FA8", "#BFDBFE", "ℹ"),
             "error": ("#FFF1F1", "#B42318", "#F4B8B5", "✕"),
         }
+        self._show_verification_notice(state, text, duration)
         background, foreground, border, icon = styles.get(state, styles["info"])
         self.notice_timer.stop()
         self.notice_animation.stop()
@@ -3421,7 +3646,7 @@ class OCRPage(QWidget):
             self.verification_viewer.set_pixmap(QPixmap())
             self.verification_position.setText("暂无原图")
             self.verification_source_name.setText("尚未选择表格内容")
-            self.verification_line.setText("当前行：—")
+            self._sync_verification_row_widgets(None)
         self._refresh_key_states()
 
     def _update_hint(self) -> None:
@@ -3946,7 +4171,10 @@ class OCRPage(QWidget):
         self._select_rows(
             index for index, row in enumerate(self.rows) if id(row) in selected_ids
         )
-        self.statusChanged.emit("done", f"第 {row_index + 1} 行已设置为 {group} 组")
+        self._sync_verification_from_table()
+        message = f"修改成功：第 {row_index + 1} 行已设为 {group} 组"
+        self.statusChanged.emit("done", message)
+        self._show_top_notice("success", message, 2000)
 
     def _table_row_token(self, row_index: int) -> int | None:
         item = self.table.item(row_index, self.LABEL_COLUMN)
@@ -4073,6 +4301,7 @@ class OCRPage(QWidget):
         if redraw_plot:
             self.plot.category_colors = dict(self.category_colors)
             self.plot.draw_rows(self.rows)
+        self._sync_verification_from_table()
         self._update_report()
 
     def _sync_table_classifications(self) -> None:
@@ -4184,7 +4413,7 @@ class OCRPage(QWidget):
             self.rows[index]["_source_rect"] = self._estimated_text_rect(
                 self.rows[index], image_width
             )
-            self._sync_verification_from_table()
+        self._sync_verification_from_table()
         self._update_report()
 
     def _update_report(self) -> None:
@@ -4485,11 +4714,24 @@ class OCRPage(QWidget):
                     widget.setFont(QFont("Microsoft YaHei UI", size, QFont.Weight.Bold))
                     widget.setStyleSheet(self._group_button_style(size))
             self.table.viewport().update()
+        if hasattr(self, "verification_line_prefix"):
+            self.verification_line_prefix.setStyleSheet(
+                f"border:0;background:transparent;font-size:{max(14, size + 2)}px;font-weight:700;color:#374151;"
+            )
         if hasattr(self, "verification_line"):
             line_size = max(18, size + 6)
             self.verification_line.setStyleSheet(
-                "background:#FFFFFF;border:1px solid #D1D5DB;border-radius:8px;"
-                f"padding:10px 14px;color:#111827;font-size:{line_size}px;font-weight:700;"
+                "QLineEdit {border:1px solid transparent;border-radius:6px;background:transparent;"
+                f"padding:4px 8px;color:#111827;font-size:{line_size}px;font-weight:700;}}"
+                "QLineEdit:focus {border:1px solid #F4C400;background:#FFFDF5;}"
+            )
+        if hasattr(self, "verification_group_label"):
+            self.verification_group_label.setStyleSheet(
+                f"border:0;background:transparent;font-size:{max(14, size + 2)}px;font-weight:700;color:#374151;"
+            )
+        if hasattr(self, "verification_group_combo"):
+            self.verification_group_combo.setStyleSheet(
+                f"QComboBox {{font-size:{max(14, size + 2)}px;font-weight:700;padding:0 10px;}}"
             )
         if hasattr(self, "report"):
             self.report.setFont(QFont("Microsoft YaHei UI", size, QFont.Weight.Bold))
@@ -5210,18 +5452,49 @@ class OCRPage(QWidget):
         self.rows.insert(insert_at, new_row)
         self._refresh_table_after_row_change()
         self._select_rows([insert_at])
+        self.table.setCurrentCell(insert_at, self.LABEL_COLUMN)
+        self._sync_verification_from_table()
+        message = f"添加成功：已新增条目「{new_row.get('label', '')}」（{new_row.get('group', 'B')} 组）"
+        self.statusChanged.emit("done", message)
+        self._show_top_notice("success", message, 2400)
 
     def delete_rows(self) -> None:
         indices = self._selected_rows()
         if not indices:
             return
-        if QMessageBox.question(self, "确认删除", f"确定删除选中的 {len(indices)} 条数据吗？") != QMessageBox.StandardButton.Yes:
+        parent_widget = (
+            self.verification_dialog
+            if hasattr(self, "verification_dialog")
+            and self.verification_dialog.isVisible()
+            and self.verification_dialog.isActiveWindow()
+            else self
+        )
+        if len(indices) == 1:
+            target_label = str(self.rows[indices[0]].get("label", ""))
+            prompt = f"确定删除当前条目「{target_label}」吗？"
+        else:
+            prompt = f"确定删除选中的 {len(indices)} 条数据吗？"
+        if QMessageBox.question(parent_widget, "确认删除", prompt) != QMessageBox.StandardButton.Yes:
             return
+        deleted_count = len(indices)
+        deleted_label = str(self.rows[indices[0]].get("label", "")) if deleted_count == 1 else ""
+        next_row = min(indices[0], max(0, len(self.rows) - deleted_count - 1))
         self._snapshot(redraw_plot=False)
         for index in reversed(indices):
             self.rows.pop(index)
         self._apply_classification_rules()
         self._refresh_table_after_row_change()
+        if self.rows and 0 <= next_row < len(self.rows):
+            self._select_rows([next_row])
+            self.table.setCurrentCell(next_row, self.LABEL_COLUMN)
+        self._sync_verification_from_table()
+        message = (
+            f"删除成功：已删除条目「{deleted_label}」"
+            if deleted_count == 1
+            else f"删除成功：已删除 {deleted_count} 条数据"
+        )
+        self.statusChanged.emit("done", message)
+        self._show_top_notice("success", message, 2400)
 
     def _swap_table_rows(self, first_row: int, second_row: int) -> None:
         first_items = [self.table.takeItem(first_row, column) for column in range(self.table.columnCount())]
@@ -5264,9 +5537,17 @@ class OCRPage(QWidget):
         self.table.viewport().update()
         new_indices = [index + direction for index in indices]
         self._select_rows(new_indices)
+        self.table.setCurrentCell(new_indices[0], self.LABEL_COLUMN)
+        self._sync_verification_from_table()
         self._update_report()
         direction_text = "上移" if direction < 0 else "下移"
-        self.statusChanged.emit("done", f"已{direction_text} {len(indices)} 条分类数据")
+        if len(new_indices) == 1:
+            moved_label = str(self.rows[new_indices[0]].get("label", ""))
+            message = f"{direction_text}成功：「{moved_label}」已移至第 {new_indices[0] + 1} 行"
+        else:
+            message = f"{direction_text}成功：已{direction_text} {len(new_indices)} 条分类数据"
+        self.statusChanged.emit("done", message)
+        self._show_top_notice("success", message, 2000)
 
     def reorder_rows(self, indices: list[int], target: int) -> None:
         indices = sorted({index for index in indices if 0 <= index < len(self.rows)})
@@ -5384,8 +5665,14 @@ class OCRPage(QWidget):
         self.table.blockSignals(False)
         self.table.viewport().update()
         self._select_rows(indices)
+        self._sync_verification_from_table()
         self._update_report()
-        self.statusChanged.emit("done", f"已将 {len(changed_indices)} 条数据设置为 {group} 组")
+        if len(changed_indices) == 1:
+            message = f"修改成功：第 {changed_indices[0] + 1} 行已设为 {group} 组"
+        else:
+            message = f"修改成功：已将 {len(changed_indices)} 条数据设为 {group} 组"
+        self.statusChanged.emit("done", message)
+        self._show_top_notice("success", message, 2000)
 
     def classify_thresholds(self, thresholds: list[float], previous: list[float] | None = None) -> None:
         if not self.rows:
