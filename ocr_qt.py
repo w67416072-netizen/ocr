@@ -225,6 +225,79 @@ def add_shadow(widget: QWidget, blur: int = 14, opacity: int = 14) -> None:
     widget.setGraphicsEffect(effect)
 
 
+def show_bottom_right_toast(
+    widget: QWidget | None,
+    title: str,
+    message: str = "",
+    state: str = "success",
+    duration: int = 3200,
+    prefer_main_window: bool = False,
+) -> None:
+    """在当前窗口（或主窗口）右下角弹出非阻塞提示框，替代居中模态弹窗。"""
+    text = f"{title}：{message}" if message else title
+    text = text.replace("\n", " · ")
+    host: QWidget | None = None
+    if widget is not None:
+        win = widget.window()
+        if prefer_main_window and win is not None and win.parentWidget() is not None:
+            host = win.parentWidget().window()
+        else:
+            host = win
+    if host is None:
+        host = QApplication.activeWindow()
+    if host is None:
+        return
+    ocr_page = getattr(host, "ocr_page", None)
+    if ocr_page is not None and hasattr(ocr_page, "_show_top_notice") and (
+        host.isActiveWindow() or prefer_main_window or not isinstance(host, QDialog)
+    ):
+        ocr_page._show_top_notice(state, text, duration)
+        return
+
+    styles = {
+        "success": ("#ECFDF5", "#137A4A", "#A7E8CC", "✓"),
+        "done": ("#ECFDF5", "#137A4A", "#A7E8CC", "✓"),
+        "warning": ("#FFF7E6", "#A35B00", "#F3D19C", "⚠"),
+        "info": ("#EFF6FF", "#245FA8", "#BFDBFE", "ℹ"),
+        "error": ("#FFF1F1", "#B42318", "#F4B8B5", "✕"),
+    }
+    background, foreground, border, icon = styles.get(state, styles["info"])
+    previous = getattr(host, "_floating_toast", None)
+    if previous is not None:
+        try:
+            previous.close()
+            previous.deleteLater()
+        except RuntimeError:
+            pass
+    toast = QFrame(host)
+    toast.setObjectName("bottomRightToast")
+    toast.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+    toast.setFixedWidth(min(380, max(260, host.width() - 40)))
+    toast.setStyleSheet(
+        f"QFrame#bottomRightToast {{background:{background};border:1px solid {border};border-radius:8px;}}"
+        f"QLabel {{background:transparent;color:{foreground};border:0;padding:8px 12px;font-weight:600;}}"
+    )
+    add_shadow(toast, blur=18, opacity=24)
+    layout = QHBoxLayout(toast)
+    layout.setContentsMargins(4, 2, 8, 2)
+    label = QLabel(f"  {icon}  {text}")
+    label.setWordWrap(True)
+    layout.addWidget(label, 1)
+    toast.adjustSize()
+    margin = 20
+    x = max(margin, host.width() - toast.width() - margin)
+    y = max(margin, host.height() - toast.height() - margin)
+    toast.move(x, y)
+    toast.show()
+    toast.raise_()
+    timer = QTimer(toast)
+    timer.setSingleShot(True)
+    timer.timeout.connect(toast.close)
+    timer.start(max(1000, int(duration)))
+    toast._close_timer = timer
+    host._floating_toast = toast
+
+
 def card(parent: QWidget | None = None) -> QFrame:
     frame = QFrame(parent)
     frame.setObjectName("card")
@@ -1435,8 +1508,11 @@ class MergePreviewDialog(QDialog):
             return
         default = f"{self.windowTitle()}_{datetime.now():%Y%m%d_%H%M%S}.png"
         path, _ = QFileDialog.getSaveFileName(self, "保存拼接图片", default, "PNG (*.png);;JPEG (*.jpg)")
-        if path and not self.merged.save(path):
-            QMessageBox.warning(self, "保存失败", "无法写入所选文件")
+        if path:
+            if not self.merged.save(path):
+                QMessageBox.warning(self, "保存失败", "无法写入所选文件")
+            else:
+                show_bottom_right_toast(self, "保存成功", f"已保存至 {Path(path).name}")
 
     def use_result(self) -> None:
         if self.merged.isNull():
@@ -2298,6 +2374,7 @@ class ClassifierHistoryDialog(QDialog):
             history = [entry for entry in history if entry is not item]
         self.repository.set("classifier_history", history)
         self.refresh()
+        show_bottom_right_toast(self, "删除成功", "已删除选中的分类表历史记录")
 
     def clear_all(self) -> None:
         history = list(self.repository.get("classifier_history", []) or [])
@@ -2311,6 +2388,7 @@ class ClassifierHistoryDialog(QDialog):
             return
         self.repository.set("classifier_history", [])
         self.refresh()
+        show_bottom_right_toast(self, "清空完成", "分类表历史记录已全部清空")
 
 
 class OCRPage(QWidget):
@@ -3727,7 +3805,9 @@ class OCRPage(QWidget):
         self.statusChanged.emit("done", f"识别完成 · {len(self.rows)} 行")
         self.dataChanged.emit()
         if failures:
-            QMessageBox.warning(self, "识别完成", f"已识别 {len(self.rows)} 行，{failures} 张图片失败或被跳过。")
+            self._show_top_notice("warning", f"识别完成：已识别 {len(self.rows)} 行，{failures} 张图片失败或被跳过。", 4200)
+        else:
+            self._show_top_notice("success", f"识别完成：共识别 {len(self.rows)} 行", 3200)
 
     @staticmethod
     def _estimated_text_rect(row: dict[str, Any], image_width: int = 0) -> QRect:
@@ -3996,6 +4076,7 @@ class OCRPage(QWidget):
             self.table.selectRow(0)
             self.table.setCurrentCell(0, self.LABEL_COLUMN)
         self.statusChanged.emit("done", f"已恢复分类表历史 · {len(self.rows)} 条")
+        self._show_top_notice("success", f"已恢复分类表历史 · {len(self.rows)} 条", 2800)
         self.dataChanged.emit()
 
     def _capture_classifier_state(self, thresholds: list[float] | None = None,
@@ -4841,6 +4922,7 @@ class OCRPage(QWidget):
         if new_text != source_text:
             self._replace_report_text(new_text)
         self.statusChanged.emit("done", f"报告替换完成 · 修改 {changed} 行")
+        self._show_top_notice("success", f"报告替换完成 · 修改 {changed} 行", 2600)
 
     def _parse_report_entries(self) -> list[dict[str, Any]]:
         report_format = str(self.repository.get("report_format", "legacy"))
@@ -5169,6 +5251,7 @@ class OCRPage(QWidget):
         self.rows[index] = updated
         self._populate_results(redraw_plot=False)
         self._select_rows([index])
+        self._show_top_notice("success", f"修改成功：已更新条目「{updated.get('label', '')}」", 2400)
 
     def copy_selected_rows(self) -> None:
         indices = self._selected_rows()
@@ -5184,6 +5267,7 @@ class OCRPage(QWidget):
             )
         QApplication.clipboard().setText("\n".join(lines))
         self.statusChanged.emit("done", f"已复制 {len(lines)} 条分类数据")
+        self._show_top_notice("success", f"已复制 {len(lines)} 条分类数据", 2200)
 
     def duplicate_selected_rows(self) -> None:
         indices = self._selected_rows()
@@ -5196,6 +5280,7 @@ class OCRPage(QWidget):
         self.rows[insert_at:insert_at] = copies
         self._populate_results(redraw_plot=False)
         self._select_rows(range(insert_at, insert_at + len(copies)))
+        self._show_top_notice("success", f"已复制新增 {len(copies)} 条分类数据", 2200)
 
     def toggle_mark_selected(self) -> None:
         indices = self._selected_rows()
@@ -5209,6 +5294,7 @@ class OCRPage(QWidget):
         self._select_rows(indices)
         action = "标记" if mark else "取消标记"
         self.statusChanged.emit("done", f"已{action} {len(indices)} 条数据")
+        self._show_top_notice("success", f"已{action} {len(indices)} 条数据", 2200)
 
     def _selected_category(self) -> str | None:
         indices = self._selected_rows()
@@ -5236,6 +5322,7 @@ class OCRPage(QWidget):
             self.repository.set("qt_category_colors", self.category_colors)
         self._populate_results()
         self.statusChanged.emit("done", f"分类已重命名 · {changed} 条")
+        self._show_top_notice("success", f"分类已重命名为「{new_name}」· {changed} 条", 2400)
 
     def show_selected_category_stats(self) -> None:
         category = self._selected_category()
@@ -5267,6 +5354,7 @@ class OCRPage(QWidget):
         self.repository.set("qt_category_colors", self.category_colors)
         self._populate_results()
         self.statusChanged.emit("done", f"已更新分类“{category}”的颜色")
+        self._show_top_notice("success", f"已更新分类「{category}」的颜色", 2400)
 
     def set_category_group(self, group: str) -> None:
         category = self._selected_category()
@@ -5286,6 +5374,7 @@ class OCRPage(QWidget):
             row["group"] = group
         self._populate_results(redraw_plot=False)
         self.statusChanged.emit("done", f"整类改组完成 · {changed} 条 → {group} 组")
+        self._show_top_notice("success", f"整类改组完成 · {changed} 条 → {group} 组", 2400)
 
     def reset_to_parsed(self) -> None:
         if not self.parsed_snapshot:
@@ -5301,6 +5390,7 @@ class OCRPage(QWidget):
         self._snapshot()
         self._restore_classifier_state(self.parsed_snapshot)
         self.statusChanged.emit("done", f"已恢复解析初始状态 · {len(self.rows)} 行")
+        self._show_top_notice("success", f"已恢复解析初始状态 · {len(self.rows)} 行", 2400)
 
     def _snapshot(self, thresholds: list[float] | None = None,
                   redraw_plot: bool = True) -> None:
@@ -5566,6 +5656,7 @@ class OCRPage(QWidget):
         self._populate_results(redraw_plot=False)
         self._select_rows(range(insert_at, insert_at + len(moved)))
         self.statusChanged.emit("done", f"已移动 {len(moved)} 条分类数据")
+        self._show_top_notice("success", f"已移动 {len(moved)} 条分类数据", 2200)
 
     def merge_rows(self) -> None:
         indices = self._selected_rows()
@@ -5584,6 +5675,7 @@ class OCRPage(QWidget):
         self._apply_classification_rules()
         self._refresh_table_after_row_change()
         self._select_rows([indices[0]])
+        self._show_top_notice("success", f"合并成功：已合并 {len(indices)} 行", 2200)
 
     def batch_set_selected_category(self) -> None:
         indices = self._selected_rows()
@@ -5632,6 +5724,7 @@ class OCRPage(QWidget):
         self.table.blockSignals(False)
         self._refresh_table_after_row_change(set())
         self.statusChanged.emit("done", f"已将 {len(indices)} 条记录的分类修改为「{new_category}」")
+        self._show_top_notice("success", f"已将 {len(indices)} 条记录的分类修改为「{new_category}」", 2400)
     def set_selected_group(self, group: str) -> None:
         indices = self._selected_rows()
         if not indices:
@@ -5740,7 +5833,7 @@ class OCRPage(QWidget):
     def split_group_a(self) -> None:
         targets = sum(row.get("group") == "A" and len(str(row.get("label", ""))) > 2 for row in self.rows)
         if not targets:
-            QMessageBox.information(self, "拆分A组", "没有需要拆分的 A 组项目")
+            self._show_top_notice("info", "拆分A组：没有需要拆分的 A 组项目", 2400)
             return
         self._snapshot(redraw_plot=False)
         output: list[dict[str, Any]] = []
@@ -5759,7 +5852,9 @@ class OCRPage(QWidget):
                 output.append(row)
         self.rows = output
         self._refresh_table_after_row_change()
-        QMessageBox.information(self, "拆分完成", f"已拆分 {targets} 个 A 组项目")
+        message = f"拆分完成：已拆分 {targets} 个 A 组项目"
+        self.statusChanged.emit("done", message)
+        self._show_top_notice("success", message, 2800)
 
     def batch_cleanup(self) -> None:
         if not self.rows:
@@ -5810,7 +5905,9 @@ class OCRPage(QWidget):
             ):
                 changed_row_ids.add(id(row))
         self._refresh_table_after_row_change(changed_row_ids)
-        QMessageBox.information(self, "批量整理完成", f"已修改 {changed} 条，移除空白项 {removed} 条")
+        message = f"批量整理完成：已修改 {changed} 条，移除空白项 {removed} 条"
+        self.statusChanged.emit("done", message)
+        self._show_top_notice("success", message, 3200)
 
     def _report_export_filename(self, suffix: str) -> str:
         book_name = self.book_name.text().strip() or "未命名书籍"
@@ -6153,6 +6250,9 @@ class OCRPage(QWidget):
             converted = converter.convert(source_text)
             if converted != source_text:
                 self._replace_report_text(converted)
+            mode_label = "繁转简" if mode == "t2s" else "简转繁"
+            self.statusChanged.emit("done", f"{mode_label}完成")
+            self._show_top_notice("success", f"{mode_label}完成", 2200)
         except ImportError:
             QMessageBox.warning(self, "缺少组件", "请安装 opencc-python-reimplemented")
 
@@ -6825,6 +6925,7 @@ class HistoryPage(QWidget):
             content = self._item_text(item)
             Path(path).write_text(content, encoding="utf-8")
             self.repository.save_export_record(path, content)
+            show_bottom_right_toast(self, "导出成功", f"已导出 {Path(path).name}")
 
     def delete_selected(self) -> None:
         row = self.table.currentRow()
@@ -6846,6 +6947,7 @@ class HistoryPage(QWidget):
                 break
         self.repository.set("history", self.all_items)
         self.apply_filter()
+        show_bottom_right_toast(self, "删除成功", "历史记录已删除")
 
 
 class StatsCanvas(FigureCanvasQTAgg):
@@ -7205,7 +7307,7 @@ class StatsPage(QWidget):
         self.repository.set("stats", {})
         self.refresh()
         self.statsCleared.emit()
-        QMessageBox.information(self, "清空完成", "OCR 调用统计已全部清空。")
+        show_bottom_right_toast(self, "清空完成", "OCR 调用统计已全部清空。")
 
     def refresh_total(self, *_args) -> None:
         mode = self.total_mode
@@ -7811,7 +7913,7 @@ class GalleryPage(QWidget):
             self.repository.save_image_from_file(self.repository.merge_image_key(selected_path), selected_path)
 
         self.refresh()
-        QMessageBox.information(self, "重新定位成功", "已更新原图路径，并保存独立图片缓存；之后移动该文件仍可预览。")
+        show_bottom_right_toast(self, "重新定位成功", "已更新原图路径并保存独立图片缓存")
 
     def remove_selected(self) -> None:
         row = self.table.currentRow()
@@ -7834,6 +7936,7 @@ class GalleryPage(QWidget):
             self.repository.set("ocr_cache", cache)
         self.repository.remove_image_data(str(record.get("_image_cache_key", "")))
         self.refresh()
+        show_bottom_right_toast(self, "移除成功", "已移出图片预览")
 
 
 class KeysPage(QWidget):
@@ -7971,6 +8074,7 @@ class KeyEditorDialog(QDialog):
         for key, value in updates.items():
             os.environ[key] = value
         qt_backend.update_credentials(updates)
+        show_bottom_right_toast(self, "保存成功", "OCR 密钥已更新", prefer_main_window=True)
         self.accept()
 
 
@@ -8063,6 +8167,7 @@ class EditableRulesDialog(QDialog):
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
             QMessageBox.warning(self, "规则格式错误", str(exc))
             return
+        show_bottom_right_toast(self, "保存成功", f"{self.windowTitle()}已更新", prefer_main_window=True)
         self.accept()
 
 
@@ -8099,6 +8204,7 @@ class ReportSettingsDialog(QDialog):
     def save(self) -> None:
         self.repository.set("report_format", str(self.format_combo.currentData() or "legacy"))
         self.repository.set("report_separator", self.separator_combo.currentText())
+        show_bottom_right_toast(self, "保存成功", "报告格式设置已更新", prefer_main_window=True)
         self.accept()
 
 
@@ -8176,7 +8282,7 @@ class RulesPage(QWidget):
                 QMessageBox.warning(self, "规则错误", f"{MODE_NAMES[mode]}的最小值不能大于最大值")
                 return
         self.repository.set("size_limits", values)
-        QMessageBox.information(self, "保存成功", "尺寸规则已保存，新旧界面同时生效。")
+        show_bottom_right_toast(self, "保存成功", "尺寸规则已保存，新旧界面同时生效。")
 
     def edit_filters(self) -> None:
         values = self.repository.get("filter_rules", []) or []
@@ -8368,6 +8474,7 @@ class ExportHistoryDialog(QDialog):
             shutil.copy2(source, target)
         else:
             Path(target).write_text(str(record.get("content", "")), encoding="utf-8")
+        show_bottom_right_toast(self, "另存成功", f"已保存至 {Path(target).name}")
 
     def _verify_password(self) -> bool:
         password, ok = QInputDialog.getText(self, "密码验证", "请输入管理员密码：", QLineEdit.EchoMode.Password)
@@ -8386,6 +8493,7 @@ class ExportHistoryDialog(QDialog):
                 break
         self.repository.set("export_history", self.all_records)
         self.apply_filter()
+        show_bottom_right_toast(self, "删除成功", "导出记录已删除")
 
     def clear_all(self) -> None:
         if not self.all_records or not self._verify_password():
@@ -8395,6 +8503,7 @@ class ExportHistoryDialog(QDialog):
         self.all_records = []
         self.repository.set("export_history", [])
         self.apply_filter()
+        show_bottom_right_toast(self, "清空完成", "导出历史记录已全部清空")
 
     def pack_backups(self) -> None:
         sources = [self.source_path(record) for record in self.all_records]
@@ -8413,7 +8522,7 @@ class ExportHistoryDialog(QDialog):
                     name = f"{source.stem}_{len(used)}{source.suffix}"
                 used.add(name)
                 archive.write(source, name)
-        QMessageBox.information(self, "打包完成", f"已打包 {len(sources)} 个文件")
+        show_bottom_right_toast(self, "打包完成", f"已打包 {len(sources)} 个文件")
 
 
 class SettingsDialog(QDialog):
@@ -8585,7 +8694,11 @@ class SettingsDialog(QDialog):
                     )
                 else:
                     status_lines.append(f"{MODE_NAMES[mode]}识别：未启用")
-            QMessageBox.information(self, "每日识别限制已保存", "\n".join(status_lines))
+            show_bottom_right_toast(
+                self, "每日识别限制已保存", "；".join(status_lines), prefer_main_window=True
+            )
+        else:
+            show_bottom_right_toast(self, "设置已保存", "应用设置已更新", prefer_main_window=True)
         super().accept()
 
     def refresh_daily_limit_status(self) -> None:
@@ -8631,6 +8744,7 @@ class SettingsDialog(QDialog):
         self.confirm_password.clear()
         self.password_status.setStyleSheet("color:#16A269;")
         self.password_status.setText("密码已修改")
+        show_bottom_right_toast(self, "修改成功", "管理员密码已更新")
 
     def choose_dir(self, target: QLineEdit) -> None:
         directory = QFileDialog.getExistingDirectory(self, "选择目录", target.text() or str(APP_DIR))
@@ -8650,7 +8764,7 @@ class SettingsDialog(QDialog):
         target, _ = QFileDialog.getSaveFileName(self, "备份全部数据", default, "JSON (*.json)")
         if target:
             shutil.copy2(source, target)
-            QMessageBox.information(self, "备份完成", "全部配置、历史、统计和缓存索引已备份。")
+            show_bottom_right_toast(self, "备份完成", "全部配置、历史、统计和缓存索引已备份。")
 
     def clear_cache(self) -> None:
         cache = self.repository.get("ocr_cache", {}) or {}
@@ -8662,7 +8776,7 @@ class SettingsDialog(QDialog):
             return
         if QMessageBox.question(self, "确认清空", f"确定清空 {len(cache)} 条 OCR 缓存吗？") == QMessageBox.StandardButton.Yes:
             self.repository.set("ocr_cache", {})
-            QMessageBox.information(self, "清理完成", "OCR 缓存索引已清空，图片和识别历史未删除。")
+            show_bottom_right_toast(self, "清理完成", "OCR 缓存索引已清空，图片和识别历史未删除。")
 
     def show_data_info(self) -> None:
         data_path = APP_DIR / "ocr_data.json"
