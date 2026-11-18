@@ -5,7 +5,7 @@ Run with: ``python ocr_qt.py``
 OCR API calls and ``ocr_data.json`` persistence are provided by the standalone
 ``qt_backend.py`` module.
 """
-#测试124
+#测试12400
 from __future__ import annotations
 
 import os
